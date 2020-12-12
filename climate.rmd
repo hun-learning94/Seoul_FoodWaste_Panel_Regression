@@ -1,0 +1,306 @@
+---
+title: "Climate"
+author: "Kang Gyeonghun"
+date: "11/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2',"lubridate", "readxl", "data.table", "corrr", "proxy")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, library, character.only=T)
+```
+
+```{r}
+citycodes = fread("data/citycode.csv", encoding = "UTF-8")
+seoulCode = rbind(citycodes[1:24,], tail(citycodes,1))
+t(seoulCode)
+```
+
+대기오염지수
+
+```{r}
+DF = rbind(fread("climate/pollution/18.csv"), fread("climate/pollution/19.csv"))
+colnames(DF) = c("date", "area_code", "area", "gu_code", "gu", "pm10", "pm2.5", "ozone", "NO2", "CO", "SO2")
+DF$date = ymd(DF$date)
+DF$pm10[DF$pm10 == 0] = NA
+DF = DF %>% arrange(date) %>% select(-area_code, -gu_code)
+DF
+```
+
+```{r}
+DF2 = fread("climate/pollution/20.csv")
+colnames(DF2) = c("date", "area", "gu", "pm10", "pm2.5", "ozone", "NO2", "CO", "SO2")
+DF2$date = ymd(DF2$date)
+DF2$pm10[DF2$pm10 == 0] = NA
+DF2 = DF2 %>% arrange(date) %>% filter(year(date) == 2020)
+DF = rbind(DF, DF2) %>% select(-area)
+DF
+```
+
+```{r}
+pollutant = "pm10"
+DFtemp = DF %>% select(date, gu, pollutant) %>% spread("gu", pollutant)
+sapply(DFtemp, function(x) sum(is.na(x)))
+```
+# NA imputation
+# compute cosine similiarity
+
+```{r}
+gus = colnames(DFtemp)[-1]
+DFnorm = na.omit(DFtemp[, -1])
+cos_dist = as.matrix(dist(t(DFnorm), method="cosine"))
+sort(cos_dist[11,])
+```
+
+
+```{r}
+nNA = sapply(DFtemp, function(x) sum(is.na(x))) %>% sum()
+i = 1
+while(nNA > 0) {
+  i = i +1
+  DFnorm = na.omit(DFtemp[, -1])
+  gus = colnames(DFtemp)[-1]
+  for (gu in gus) {
+    DFnorm_diff = DFnorm - DFnorm[[gu]]
+    dist = sapply(DFnorm_diff, function(x) sum(x ^ 2) / nrow(DFnorm)) %>% sort()
+    close_gu = names(dist[i])
+    DFtemp[[gu]][(is.na(DFtemp[[gu]]))] = DFtemp[[close_gu]][(is.na(DFtemp[[gu]]))]
+  }
+  nNA = sapply(DFtemp, function(x) sum(is.na(x))) %>% sum()
+  cat(nNA, "\t")
+}
+nNA
+```
+
+```{r}
+write.table(DFtemp, "data/pm10_naimputed.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+```
+
+
+
+```{r}
+Week = as.Date(cut(DFtemp$date, "week"))
+DFtemp_weekly = aggregate(.~ Week, DFtemp[,-1], mean, na.action=na.omit)
+
+Month = as.Date(cut(DFtemp$date, "month"))
+DFtemp_monthly = aggregate(.~ Month, DFtemp[,-1], mean, na.action=na.omit)
+
+DFtemp_monthly %>% gather("gu", pollutant, -Month) %>% filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  ggplot(aes(x=ymd(Month), y=pollutant, color=gu)) + geom_line() + facet_wrap(~gu, scales = "free")+ theme(legend.position="right")
+
+DFtemp_monthly %>% gather("gu", pollutant, -Month) %>% filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  ggplot(aes(x=ymd(Month), y=pollutant, color=gu)) + geom_line() + facet_wrap(~gu, scales = "free")+ theme(legend.position="right")
+
+DFtemp_monthly %>% gather("gu", pollutant, -Month) %>% filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  ggplot(aes(x=ymd(Month), y=pollutant, color=gu)) + geom_line() + facet_wrap(~gu, scales = "free")+ theme(legend.position="right")
+```
+
+```{r}
+pollutants = c("pm10", "NO2")
+for(pollutant in pollutants){
+  DFtemp = DF %>% select(date, gu, pollutant) %>% spread("gu", pollutant)
+  
+  # NA imputation
+  nNA = sapply(DFtemp, function(x)
+    sum(is.na(x))) %>% sum()
+  i = 1
+  while (nNA > 0) {
+    i = i + 1
+    DFnorm = na.omit(DFtemp[,-1])
+    gus = colnames(DFtemp)[-1]
+    for (gu in gus) {
+      DFnorm_diff = DFnorm - DFnorm[[gu]]
+      dist = sapply(DFnorm_diff, function(x)
+        sum(x ^ 2) / nrow(DFnorm)) %>% sort()
+      close_gu = names(dist[i])
+      DFtemp[[gu]][(is.na(DFtemp[[gu]]))] = DFtemp[[close_gu]][(is.na(DFtemp[[gu]]))]
+    }
+    nNA = sapply(DFtemp, function(x)
+      sum(is.na(x))) %>% sum()
+    cat(nNA, "\t")
+  }
+  
+  Week = as.Date(cut(DFtemp$date, "week"))
+  DFtemp_weekly = aggregate(.~ Week, DFtemp[,-1], mean, na.action=na.omit) %>% gather("gu", pollutant, -Week)
+
+  Month = as.Date(cut(DFtemp$date, "month"))
+  DFtemp_monthly = aggregate(.~ Month, DFtemp[,-1], mean, na.action=na.omit) %>% gather("gu", pollutant, -Month)
+
+  filename_week = paste0("data/pollutant_", pollutant, "1820_weekly.csv")
+  filename_month = paste0("data/pollutant_", pollutant, "1820_monthly.csv")
+  write.table(DFtemp_weekly, filename_week, sep=",", row.names = F, fileEncoding="UTF-8")
+  write.table(DFtemp_monthly, filename_month, sep=",", row.names = F, fileEncoding="UTF-8")
+}
+```
+
+
+## 서울시 전체 기온
+
+```{r}
+DF = fread("climate/temperature1820.csv")
+colnames(DF)[c(1,3)] = c("date", "avg_temp")
+DF = DF %>% select(date, avg_temp)
+
+Week = as.Date(cut(DF$date, "week"))
+DF_weekly = aggregate(.~ Week, DF[,-1], mean, na.action = na.omit)
+DF_weekly %>% ggplot(aes(x=ymd(Week), y = avg_temp)) +geom_line()
+
+Month = as.Date(cut(DF$date, "month"))
+DF_monthly = aggregate(.~ Month, DF[,-1], mean, na.action = na.omit)
+DF_monthly %>% ggplot(aes(x=ymd(Month), y = avg_temp)) +geom_line()
+```
+
+```{r}
+n_gu = length(seoulCode$citySggName)
+DF_long_monthly = DF_monthly %>% slice(rep(1:n(), each=n_gu))
+DF_long_monthly$gu = rep(seoulCode$citySggName, nrow(DF_monthly))
+DF_long_monthly = DF_long_monthly[,c(1,3,2)]
+
+n_gu = length(seoulCode$citySggName)
+DF_long_weekly = DF_weekly %>% slice(rep(1:n(), each=n_gu))
+DF_long_weekly$gu = rep(seoulCode$citySggName, nrow(DF_weekly))
+DF_long_weekly = DF_long_weekly[,c(1,3,2)]
+
+write.table(DF_long_monthly, "data/avgtemp1820_mly.csv", sep=",", row.names=F, fileEncoding = "UTF-8")
+write.table(DF_long_weekly, "data/avgtemp1820_weekly.csv", sep=",", row.names=F, fileEncoding = "UTF-8")
+avgtemp1820_weekly = fread("data/avgtemp1820_weekly.csv", encoding="UTF-8")
+avgtemp1820_weekly
+```
+
+
+
+## 서울시 전체 강수량
+
+```{r}
+DF = fread("climate/rain1820.csv")
+colnames(DF) = c("date", "loca", "precipitation")
+DF$precipitation[is.na(DF$precipitation)] = 0
+DF = DF %>% select(date, precipitation)
+
+Week = as.Date(cut(DF$date, "week"))
+DF_weekly = aggregate(.~ Week, DF[,-1], mean, na.action = na.omit)
+DF_weekly %>% ggplot(aes(x=ymd(Week), y = precipitation)) +geom_line()
+
+Month = as.Date(cut(DF$date, "month"))
+DF_monthly = aggregate(.~ Month, DF[,-1], mean, na.action = na.omit)
+DF_monthly %>% ggplot(aes(x=ymd(Month), y = precipitation)) +geom_line()
+```
+
+```{r}
+n_gu = length(seoulCode$citySggName)
+DF_long_monthly = DF_monthly %>% slice(rep(1:n(), each=n_gu))
+DF_long_monthly$gu = rep(seoulCode$citySggName, nrow(DF_monthly))
+DF_long_monthly = DF_long_monthly[,c(1,3,2)]
+
+write.table(DF_long_monthly, "data/avgprecp1820_mly.csv", sep=",", row.names=F, fileEncoding = "UTF-8")
+avgprecp1820_mly = fread("data/avgprecp1820_mly.csv", encoding="UTF-8")
+avgprecp1820_mly
+```
+
+
+
+## google / naver trend
+
+```{r}
+DF = fread("search/google.csv", skip=2, encoding="UTF-8")
+colnames(DF) = c("date", "google")
+DF$date = ymd(DF$date)
+DF
+
+Month = as.Date(cut(DF$date, "month"))
+DF_monthly = aggregate(.~ Month, DF[,-1], mean, na.action = na.omit)
+google = DF_monthly
+DF_monthly %>% ggplot(aes(x=ymd(Month), y = google)) +geom_line()
+
+n_gu = length(seoulCode$citySggName)
+DF_long_monthly = DF_monthly %>% slice(rep(1:n(), each=n_gu))
+DF_long_monthly$gu = rep(seoulCode$citySggName, nrow(DF_monthly))
+DF_long_monthly = DF_long_monthly[,c(1,3,2)]
+
+write.table(DF_long_monthly, "data/google1820_mly.csv", sep=",", row.names=F, fileEncoding = "UTF-8")
+google1820_mly = fread("data/google1820_mly.csv", encoding="UTF-8")
+google1820_mly
+```
+
+```{r}
+DF = fread("search/naver.csv",skip= 6, encoding="UTF-8")
+colnames(DF) = c("date", "naver")
+DF$date = ymd(DF$date)
+DF
+
+Month = as.Date(cut(DF$date, "month"))
+DF_monthly = aggregate(.~ Month, DF[,-1], mean, na.action = na.omit)
+naver = DF_monthly
+DF_monthly %>% ggplot(aes(x=ymd(Month), y = naver)) +geom_line()
+
+n_gu = length(seoulCode$citySggName)
+DF_long_monthly = DF_monthly %>% slice(rep(1:n(), each=n_gu))
+DF_long_monthly$gu = rep(seoulCode$citySggName, nrow(DF_monthly))
+DF_long_monthly = DF_long_monthly[,c(1,3,2)]
+```
+
+```{r}
+sources = merge(naver, google)
+sources %>% gather("source", "idx", -Month) %>% ggplot(aes(x=ymd(Month), y=idx, color=source))+geom_line() + theme(legend.position="right")
+cor(sources$naver, sources$google)
+```
+
+```{r}
+library(graphics)
+model = prcomp(sources[,c(2,3)],scale=T)
+summary(model)
+
+biplot(model)
+```
+
+```{r}
+pc1 = predict(model)[,1]
+plot(sources$naver, pc1, col="red")
+plot(sources$google, pc1, col="blue")
+```
+
+
+```{r}
+sources$search = pc1
+DF_monthly = sources %>% select(Month, search)
+DF_monthly %>% ggplot(aes(x=ymd(Month), y = search)) +geom_line()
+
+n_gu = length(seoulCode$citySggName)
+DF_long_monthly = DF_monthly %>% slice(rep(1:n(), each=n_gu))
+DF_long_monthly$gu = rep(seoulCode$citySggName, nrow(DF_monthly))
+DF_long_monthly = DF_long_monthly[,c(1,3,2)]
+
+write.table(DF_long_monthly, "data/search1820_mly.csv", sep=",", row.names=F, fileEncoding = "UTF-8")
+search1820_mly = fread("data/search1820_mly.csv", encoding="UTF-8")
+search1820_mly
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,369 @@
+---
+title: "Population"
+author: "Kang Gyeonghun"
+date: "11/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      cache = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2',"lubridate", "readxl", "data.table", "imputeTS")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, library, character.only=T)
+```
+
+```{r}
+citycodes = fread("data/citycode.csv", encoding = "UTF-8")
+seoulCode = rbind(citycodes[1:24,], tail(citycodes,1))
+t(seoulCode)
+```
+
+function of interpolation (Qtr -> Mly)
+```{r}
+QtoM = function(DF){
+  DF2 = DF; DF2$Qtr = DF$Qtr %m+% months(1);
+  DF3 = DF; DF3$Qtr = DF$Qtr %m+% months(2);
+  DF = rbind(DF,DF2,DF3) %>% arrange(Qtr)
+  return(DF)
+}
+```
+
+인구만
+```{r}
+DF = fread("population/pop_total_q.txt", sep="\t", encoding="UTF-8")
+DF = DF %>% t() %>% as_tibble() %>% filter(V2 %in% c("기간", "자치구") | (V1=="합계" & V2=="계")) %>% t() %>%  as_tibble()
+DF = DF[-c(1,2), ] %>% filter(V2 != "합계")
+colnames(DF) = c("Qtr", "gu", "pop")
+DF$pop = DF$pop %>% gsub(",", "", .) %>% as.numeric()
+DF = DF %>% spread("gu", "pop")
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,6,6))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "value", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/Pop1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+Pop1820_gu_qtrly = fread("data/Pop1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+세대수만
+```{r}
+DF = fread("population/pop_total_q.txt", sep="\t", encoding="UTF-8")
+DF = DF %>% t() %>% as_tibble() %>% filter(V2 %in% c("기간", "자치구", "세대")) %>% t() %>%  as_tibble()
+DF = DF[-c(1,2), ] %>% filter(V2 != "합계")
+colnames(DF) = c("Qtr", "gu", "pop")
+DF$pop = DF$pop %>% gsub(",", "", .) %>% as.numeric()
+DF = DF %>% spread("gu", "pop")
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,6,6))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "value", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/nHouses1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+nHouses1820_gu_qtrly = fread("data/nHouses1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+
+세대당인구
+
+```{r}
+DF = fread("population/pop_total_q.txt", sep="\t", encoding="UTF-8")
+DF = DF %>% t() %>% as_tibble() %>% filter(V2 %in% c("기간", "자치구", "세대당인구")) %>% t() %>%  as_tibble()
+DF = DF[-c(1,2), ] %>% filter(V2 != "합계")
+colnames(DF) = c("Qtr", "gu", "pop")
+DF$pop = DF$pop %>% gsub(",", "", .) %>% as.numeric()
+DF = DF %>% spread("gu", "pop")
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,6,6))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+
+DF2 = DF; DF2$Qtr = DF$Qtr %m+% months(1);
+DF3 = DF; DF3$Qtr = DF$Qtr %m+% months(2);
+DF = rbind(DF,DF2,DF3) %>% arrange(Qtr)
+
+DF_long = DF %>% gather("gu", "value", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+```{r}
+DF = fread("population/pop_total_q.txt", sep="\t", encoding="UTF-8")
+DF = DF %>% t() %>% as_tibble() %>% filter(V2 %in% c("기간", "자치구", "세대당인구")) %>% t() %>%  as_tibble()
+DF = DF[-c(1,2), ] %>% filter(V2 != "합계")
+colnames(DF) = c("Qtr", "gu", "pop")
+DF$pop = DF$pop %>% gsub(",", "", .) %>% as.numeric()
+DF = DF %>% spread("gu", "pop")
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,6,6))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "value", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=value, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/PopPerHouse1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+PopPerHouse1820_gu_qtrly = fread("data/PopPerHouse1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+## 나이별 인구
+
+연령구분기준 
+https://www.gosims.go.kr/hh/hh001/retrieveLfcySearch.do
+
+```{r}
+DF1 = fread("population/pop_age_q/18.csv", encoding="UTF-8", na.strings = c("", NA))
+DF2 = fread("population/pop_age_q/19.csv", encoding="UTF-8", na.strings = c("", NA))
+DF3 = fread("population/pop_age_q/20.txt", encoding="UTF-8", na.strings = c("-", NA))
+colnames(DF3)[3] = "행정동"
+```
+
+```{r}
+DF1
+DF2
+DF3[,4:ncol(DF3)] = lapply(DF3[,4:ncol(DF3)], function(x) as.numeric(gsub(",", "", x)))
+DF3
+```
+
+
+```{r}
+DF = rbind(DF1, DF2, DF3, use.names=F) %>% 
+  fill(기간, .direction="down") %>% 
+  fill(자치구, .direction="down") %>% 
+  filter(자치구 != "합계") %>% 
+  filter(행정동 == "소계") %>% 
+  select(-행정동)
+ages = c(paste("age", 0:99, sep=""), "age100_")
+colnames(DF) = c("Qtr", "gu", "total", ages)
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,6,6))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF[,4:ncol(DF)] = DF[,4:ncol(DF)]/DF[["total"]]
+DF = DF %>% select(-total)
+DF
+```
+
+```{r}
+DF_ages = DF %>% select(Qtr:gu)
+DF %>% select(age0:age5) %>% rowSums(na.rm=T) -> DF_ages$age_05
+DF %>% select(age6:age12) %>% rowSums(na.rm=T) -> DF_ages$age0612
+DF %>% select(age13:age18) %>% rowSums(na.rm=T) -> DF_ages$age1318
+DF %>% select(age19:age29) %>% rowSums(na.rm=T) -> DF_ages$age1929
+DF %>% select(age30:age49) %>% rowSums(na.rm=T) -> DF_ages$age3049
+DF %>% select(age50:age64) %>% rowSums(na.rm=T) -> DF_ages$age5064
+DF %>% select(age65:age100_) %>% rowSums(na.rm=T) -> DF_ages$age65_
+all((DF_ages[,3:ncol(DF_ages)] %>% rowSums()) == 1)
+DF = DF_ages
+DF
+```
+
+```{r}
+DF2 = DF; DF2$Qtr = DF$Qtr %m+% months(1);
+DF3 = DF; DF3$Qtr = DF$Qtr %m+% months(2);
+DF_imp = rbind(DF,DF2,DF3) %>% arrange(gu, Qtr)
+DF_imp
+```
+
+
+```{r}
+write.table(DF_imp, "data/pop_age_long_qtrly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+pop_age_long_qtrly = fread("data/pop_age_long_qtrly.csv", encoding = "UTF-8")
+```
+
+```{r}
+DF_05 = pop_age_long_qtrly %>% select(Qtr, gu, age_05)
+
+DF_05 %>%  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age_05, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+
+DF_05 %>%  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age_05, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+
+DF_05 %>%  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age_05, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+```
+
+
+
+```{r}
+DF1929 = pop_age_long_qtrly %>% select(Qtr, gu, age1929)
+
+DF1929 %>%  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age1929, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+
+DF1929 %>%  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age1929, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+
+DF1929 %>%  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age1929, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+```
+
+```{r}
+DF65_ = pop_age_long_qtrly %>% select(Qtr, gu, age65_)
+
+DF65_ %>%  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age65_, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+
+DF65_ %>%  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age65_, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+
+DF65_ %>%  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=age65_, color=gu))+geom_line() + facet_wrap(~ gu, scales="free")+ theme(legend.position="right")
+```
+
+## 세대별 인구
+
+```{r}
+DF = tibble()
+periods = c(180103, 180406, 180709, 181012, 190103, 190406, 190709, 191012, 200103, 200406)
+for(period in periods) {
+  path = paste0("population/pop_housemember_m/", period, ".txt")
+  Df = fread(path, encoding = "UTF-8", colClasses = c("기간" = "character"))
+  colnames(Df)[3] = "행정동"
+  Df = Df %>% filter(자치구  != "합계" & 행정동  %in% c("계", "소계")) %>% select(-행정동)
+  DF = rbind(DF, Df, use.names=F)
+}
+colnames(DF) = c("Qtr", "gu","total", paste0("mem", 1:9), "mem10_")
+DF = DF %>% filter(Qtr != FALSE)
+DF[, 3:ncol(DF)] = lapply(DF[, 3:ncol(DF)], function(x) as.numeric(gsub(",", "", x)))
+DF[,4:ncol(DF)] = DF[,4:ncol(DF)]/DF[["total"]]
+DF = DF %>% select(-total)
+DF
+```
+
+```{r}
+Qtr = paste0(DF$Qtr, ".01") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF
+```
+
+```{r}
+write.table(DF, "data/pop_housemember_mly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+pop_housemember_mly = fread("data/pop_housemember_mly.csv", encoding = "UTF-8")
+```
+
+```{r}
+pop_housemember_mly %>% select(Qtr, gu, mem1) %>% filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=mem1, color=gu)) + geom_line() + facet_wrap(~gu, scales = "free")+ theme(legend.position="right")
+
+pop_housemember_mly %>% select(Qtr, gu, mem1) %>% filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=mem1, color=gu)) + geom_line() + facet_wrap(~gu, scales = "free")+ theme(legend.position="right")
+
+pop_housemember_mly %>% select(Qtr, gu, mem1) %>% filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  ggplot(aes(x=ymd(Qtr), y=mem1, color=gu)) + geom_line() + facet_wrap(~gu, scales = "free")+ theme(legend.position="right")
+```
+
+
+
+
+
+
+
+
+
+
+

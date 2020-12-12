@@ -1,0 +1,473 @@
+---
+title: "Business"
+author: "Kang Gyeonghun"
+date: "11/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      cache = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2',"lubridate", "readxl", "data.table")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, library, character.only=T)
+```
+
+```{r}
+citycodes = fread("data/citycode.csv", encoding = "UTF-8")
+seoulCode = rbind(citycodes[1:24,], tail(citycodes,1))
+t(seoulCode)
+```
+
+## 자치구별 점포수
+
+분기별 자료를 월간으로 변환해야야
+
+```{r}
+DF = read_xlsx("business/seouldata.xlsx", sheet="점포수", col_names=F, col_types="guess", na="") %>% t() %>% as_tibble() 
+DF = DF %>% filter(V1 != "NA") %>% select_if(~ !any(is.na(.))) %>% filter(V1 != "생활밀접업종")
+colnames(DF) = DF[1,]; colnames(DF)[1] = "Qtr"; colnames(DF)[2] = "total"
+DF = DF %>% filter(Qtr!="행정구역") %>% select(-total) 
+DF[,2:ncol(DF)] = sapply(DF[,2:ncol(DF)], as.numeric)
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,7,7))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+colnames(DF) = gsub("\u00A0", "", colnames(DF))
+DF = DF[,order(colnames(DF))]
+DF
+```
+
+```{r}
+DF %>% pivot_longer(names_to = "gu", values_to = "nBusiness", -Qtr) %>% ggplot()+
+  geom_line(aes(x=ymd(Qtr), y=nBusiness, group=gu))+facet_wrap(~gu, scales="free")
+```
+
+
+
+분기별을 월간으로 바꾸기
+
+```{r}
+QtoM = function(DF){
+  DF2 = DF; DF2$Qtr = DF$Qtr %m+% months(1); 
+  DF3 = DF; DF3$Qtr = DF$Qtr %m+% months(2);
+  DF = rbind(DF,DF2,DF3) %>% arrange(Qtr)
+  DF
+}
+```
+
+```{r}
+DF = QtoM(DF)
+DF
+```
+
+시각화하기
+
+```{r}
+DF_long = DF %>% gather("gu", "nBusiness", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nBusiness, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nBusiness, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nBusiness, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+저장하기
+```{r}
+write.table(DF, "data/nBuss1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+nBuss1820_gu_qtrly = fread("data/nBuss1820_gu_qtrly.csv", encoding = "UTF-8")
+nBuss1820_gu_qtrly
+```
+
+
+## 자치구별 개업수/폐업수/증감
+
+개업수 
+
+```{r}
+DF = read_xlsx("business/seouldata.xlsx", sheet="개폐업", col_names=F, col_types="guess", na="") %>% t() %>% as_tibble()
+DF = DF %>% filter(V2 == "개업수" | V1 == "행정구역")%>% select_if(~ !any(is.na(.)))
+colnames(DF) = gsub("\u00A0", "", DF[1,]); colnames(DF)[1] = "Qtr"; colnames(DF)[2] = "total"
+DF = DF %>% filter(Qtr!="행정구역") %>% select(-total) 
+DF[,2:ncol(DF)] = sapply(DF[,2:ncol(DF)], as.numeric)
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,7,7))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF = DF[,order(colnames(DF))]
+
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "nOpen", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nOpen, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nOpen, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nOpen, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/nOpen1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+nOpen1820_gu_qtrly = fread("data/nOpen1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+
+폐업수 
+
+```{r}
+DF = read_xlsx("business/seouldata.xlsx", sheet="개폐업", col_names=F, col_types="guess", na="") %>% t() %>% as_tibble()
+DF = DF %>% fill(V1, .direction="down")
+DF = DF %>% filter(V2 == "폐업수" | V1 == "행정구역")%>% select_if(~ !any(is.na(.)))
+colnames(DF) = gsub("\u00A0", "", DF[1,]); colnames(DF)[1] = "Qtr"; colnames(DF)[2] = "total"
+DF = DF %>% filter(Qtr!="행정구역") %>% select(-total) 
+DF[,2:ncol(DF)] = sapply(DF[,2:ncol(DF)], as.numeric)
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,7,7))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF = DF[,order(colnames(DF))]
+
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "nClose", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nClose, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nClose, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=nClose, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/nClose1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+nClose1820_gu_qtrly = fread("data/nClose1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+
+## 자치구별 신생기업생존율
+
+1년 생존율
+```{r}
+DF = read_xlsx("business/seouldata.xlsx", sheet="신생기업생존율", col_names=F, col_types="guess", na="") %>% t() %>% as_tibble()
+DF = DF %>% fill(V1, .direction="down")
+DF = DF %>% filter(V2 == "1년" | V1 == "행정구역") %>% select_if(~ !any(is.na(.)))
+colnames(DF) = gsub("\u00A0", "", DF[1,]); colnames(DF)[1] = "Qtr"; colnames(DF)[2] = "total"
+DF = DF %>% filter(Qtr!="행정구역") %>% select(-total) 
+DF[,2:ncol(DF)] = sapply(DF[,2:ncol(DF)], as.numeric)
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,7,7))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF = DF[,order(colnames(DF))]
+DF
+```
+
+```{r}
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "rSuv1yr", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv1yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv1yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv1yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/rSuv1yr1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+rSuv1yr1820_gu_qtrly = fread("data/rSuv1yr1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+3년 생존율
+```{r}
+DF = read_xlsx("business/seouldata.xlsx", sheet="신생기업생존율", col_names=F, col_types="guess", na="") %>% t() %>% as_tibble()
+DF = DF %>% fill(V1, .direction="down")
+DF = DF %>% filter(V2 == "3년" | V1 == "행정구역") %>% select_if(~ !any(is.na(.)))
+colnames(DF) = gsub("\u00A0", "", DF[1,]); colnames(DF)[1] = "Qtr"; colnames(DF)[2] = "total"
+DF = DF %>% filter(Qtr!="행정구역") %>% select(-total) 
+DF[,2:ncol(DF)] = sapply(DF[,2:ncol(DF)], as.numeric)
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,7,7))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF = DF[,order(colnames(DF))]
+
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "rSuv3yr", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv3yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv3yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv3yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/rSuv3yr1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+rSuv3yr1820_gu_qtrly = fread("data/rSuv3yr1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+
+5년 생존율
+```{r}
+DF = read_xlsx("business/seouldata.xlsx", sheet="신생기업생존율", col_names=F, col_types="guess", na="") %>% t() %>% as_tibble()
+DF = DF %>% fill(V1, .direction="down")
+DF = DF %>% filter(V2 == "5년" | V1 == "행정구역") %>% select_if(~ !any(is.na(.)))
+colnames(DF) = gsub("\u00A0", "", DF[1,]); colnames(DF)[1] = "Qtr"; colnames(DF)[2] = "total"
+DF = DF %>% filter(Qtr!="행정구역") %>% select(-total) 
+DF[,2:ncol(DF)] = sapply(DF[,2:ncol(DF)], as.numeric)
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,7,7))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF = DF[,order(colnames(DF))]
+
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "rSuv5yr", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv5yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv5yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rSuv5yr, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/rSuv5yr1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+rSuv5yr1820_gu_qtrly = fread("data/rSuv5yr1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+
+## 소득
+
+```{r}
+DF = read_xlsx("business/seouldata.xlsx", sheet="소득가구수", col_names=F, col_types="guess", na="") %>% t() %>% as_tibble()
+DF = DF %>% filter(V2 == "소득분위" | V1 == "행정구역") %>% select_if(~ !any(is.na(.)))
+colnames(DF) = gsub("\u00A0", "", DF[1,]); colnames(DF)[1] = "Qtr"; colnames(DF)[2] = "total"
+DF = DF %>% filter(Qtr!="행정구역") %>% select(-total) 
+DF[,2:ncol(DF)] = sapply(DF[,2:ncol(DF)], function(x) as.numeric(gsub("분위", "", x)))
+
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,7,7))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF = DF[,order(colnames(DF))]
+
+DF2 = DF; DF2$Qtr = DF$Qtr %m+% months(1)
+DF3 = DF; DF3$Qtr = DF$Qtr %m+% months(2)
+DF = rbind(DF,DF2,DF3) %>% arrange(Qtr)
+
+DF_long = DF %>% gather("gu", "incomelvl", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=incomelvl, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=incomelvl, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=incomelvl, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/incomelvl1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+incomelvl1820_gu_qtrly = fread("data/incomelvl1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+
+
+## 임대시세
+
+```{r}
+DF = read_xlsx("business/seouldata.xlsx", sheet="임대시세", col_names=F, col_types="guess", na="") %>% t() %>% as_tibble()
+DF = DF %>% filter(V3 == "전체" | V1 == "행정구역") %>% select_if(~ !any(is.na(.)))
+colnames(DF) = gsub("\u00A0", "", DF[1,]); colnames(DF)[1] = "Qtr"; colnames(DF)[2] = "total"
+DF = DF %>% filter(Qtr!="행정구역") %>% select(-total) 
+DF[,2:ncol(DF)] = sapply(DF[,2:ncol(DF)], as.numeric)
+
+Qtr = paste(substr(DF$Qtr,1,4),as.numeric(substr(DF$Qtr,7,7))*3-2, "01", sep="-") %>% ymd() %>% floor_date('month')
+DF$Qtr = Qtr
+DF = DF[,order(colnames(DF))]
+
+DF = QtoM(DF)
+
+DF_long = DF %>% gather("gu", "rent", -Qtr)
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rent, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rent, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+DF_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Qtr) >= 2018) %>% 
+  ggplot(aes(x=ymd(Qtr), y=rent, color=gu))+
+  geom_line()+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+write.table(DF, "data/rent1820_gu_qtrly.csv", row.names = F, sep=",", fileEncoding = "UTF-8")
+rent1820_gu_qtrly = fread("data/rent1820_gu_qtrly.csv", encoding = "UTF-8")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

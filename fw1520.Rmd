@@ -1,0 +1,286 @@
+---
+title: "FW1520"
+author: "Kang Gyeonghun"
+date: "11/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      cache = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2',"lubridate", "readxl", "data.table")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, library, character.only=T)
+```
+
+지역구 코드
+
+```{r}
+citycodes = fread("data/citycode.csv", encoding = "UTF-8")
+seoulCode = rbind(citycodes[1:24,], tail(citycodes,1))
+t(seoulCode)
+```
+
+
+http://www.sthda.com/english/wiki/reading-data-from-excel-files-xls-xlsx-into-r
+
+```{r}
+DF = data.table()
+
+folders = c("fw15seoul", "fw16seoul")
+years = c("15", "16")
+months = c("01","02","03","04","05","06","07","08","09","10","11","12")
+
+for(i in 1:length(folders)) {
+  folder = folders[i]
+  year = years[i]
+  for (month in months) {
+    path = paste0("fw1516seoul/", folder, "/", year, month, ".xls")
+    df = read_excel(
+      path,
+      sheet = 1,
+      skip = 2,
+      col_names = T,
+      col_types = "guess",
+      na = "NA"
+    )
+    df = df %>% mutate("yymm"=paste0(paste0("20", year), "-", month)) %>% 
+      unite("date", c(yymm, 배출일), sep="-") %>% 
+      select(date, 시도명, 시군구명, "배출량(g)")
+    DF = rbind(DF, df)
+  }
+}
+
+DF = DF %>% filter(시도명 != "합계")
+colnames(DF)[4] = "disQ_t"
+DF = DF %>% mutate(disQ_t = disQ_t / 1e06)
+DF
+```
+
+```{r}
+write.table(DF, file="1516edit.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+DF = fread("1516edit.csv", encoding="UTF-8")
+DF
+```
+
+```{r}
+DF_wide = DF %>% pivot_wider(names_from = 시군구명, values_from = disQ_t) %>% select(-"시도명")
+DF_wide = DF_wide[, order(colnames(DF_wide))]
+DF_wide
+```
+
+```{r}
+write.table(DF_wide, file= "data/fw1516_gu.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+```
+
+```{r}
+fw1516_gu = fread("data/fw1516_gu.csv", encoding="UTF-8")
+fw1516_gu$date = ymd(fw1516_gu$date)
+fw1516_gu
+```
+
+```{r}
+fw17 = fread("fw2017seoul.csv", encoding = "UTF-8")
+fw17 = fw17 %>% unite("date", c("년도", "월", "일"), sep="-") %>% mutate(date = ymd(date)) %>% 
+  select("date", "지자체명", "배출량(kg)")
+colnames(fw17)[3] = "disq_t"
+fw17_gu = fw17 %>% mutate(disq_t = as.numeric(gsub(",", "", disq_t))/1e6) %>% spread("지자체명", disq_t)
+fw17_gu
+```
+
+```{r}
+fw151617_gu = rbind(fw1516_gu, fw17_gu)
+```
+
+```{r}
+fw1520_gu = bind_rows(fw151617_gu, fread("data/fw181920_gu_outlierhandled.csv", encoding = "UTF-8"))
+fw1520_gu = fw1520_gu %>% select(sort(tidyselect::peek_vars()))
+fw1520_gu
+```
+
+convert to weekly
+
+```{r}
+Week = as.Date(cut(fw1520_gu$date, "week"))
+fw1520_gu_weekly = aggregate(.~ Week, fw1520_gu[,-1], sum, na.action=NULL)
+fw1520_gu_weekly = fw1520_gu_weekly[2:(nrow(fw1520_gu_weekly)-1), ]
+fw1520_gu_weekly
+
+fw1520_long_weekly = fw1520_gu_weekly %>% gather("gu", "disq_t", -Week)
+fw1520_long_weekly
+```
+
+
+Visualize
+
+```{r}
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>%
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+```{r}
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Week) >= 2016) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Week) >= 2016) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Week) >= 2016) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+
+```{r}
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Week) >= 2017) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Week) >= 2017) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Week) >= 2017) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+```{r}
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Week) >= 2018) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>% 
+  filter(year(Week) >= 2018) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1520_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Week) >= 2018) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+
+convert to monthly
+
+```{r}
+Month = as.Date(cut(fw1520_gu$date, "month"))
+fw1520_gu_monthly = aggregate(.~ Month, fw1520_gu[,-1], sum, na.action=NULL)
+fw1520_gu_monthly = fw1520_gu_monthly[2:(nrow(fw1520_gu_monthly)-1), ]
+fw1520_gu_monthly
+
+fw1520_long_monthly = fw1520_gu_monthly %>% gather("gu", "disq_t", -Month)
+fw1520_long_monthly
+```
+```{r}
+write.table(fw1520_gu_monthly, "data/fw1520_gu_monthly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+write.table(fw1520_long_monthly, "data/fw1520_long_monthly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+```
+
+
+
+```{r}
+fw1520_long_monthly = fread("data/fw1520_long_monthly.csv", encoding = "UTF-8")
+fw1520_long_monthly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:9]) %>% 
+  filter(year(Month) >= 2018) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Month), y=disq_t, color=gu))+
+  facet_wrap(~ gu)+
+  theme(legend.position="right")
+
+fw1520_long_monthly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[10:18]) %>%
+  filter(year(Month) >= 2018) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Month), y=disq_t, color=gu))+
+  facet_wrap(~ gu)+
+  theme(legend.position="right")
+
+fw1520_long_monthly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:25]) %>% 
+  filter(year(Month) >= 2018) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Month), y=disq_t, color=gu))+
+  facet_wrap(~ gu)+
+  theme(legend.position="right")
+```
+
+```{r}
+tail(fw1520_gu)
+```
+
+
+
+
+
+
+
+
+

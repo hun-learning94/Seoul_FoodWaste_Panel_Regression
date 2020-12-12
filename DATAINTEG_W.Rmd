@@ -1,0 +1,258 @@
+---
+title: "DATA INTEG WEEKLY"
+author: "Kang Gyeonghun"
+date: "11/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2',"lubridate", "readxl", "data.table", "zoo", "xts", "imputeTS")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, library, character.only=T)
+```
+
+서울코드 불러오기
+```{r}
+citycodes = fread("data/citycode.csv", encoding = "UTF-8")
+seoulCode = rbind(citycodes[1:24,], tail(citycodes,1))
+```
+
+# Weekly analysis
+
+## Target: FW18~20 Weekly
+
+```{r}
+FW = fread("data/fw1720_gu_imputed_weekly.csv", encoding = "UTF-8") %>% filter(Week >= "2018-01-01" & Week < "2020-09-01")
+FW[,2:ncol(FW)] %>% rowSums() -> FW$Seoul
+FW = FW %>% select(Week, Seoul)
+FW %>% ggplot(aes(x=ymd(Week), y=Seoul))+geom_line()
+FW$Week = ymd(FW$Week)
+FW
+```
+
+## Covariates:
+
+### Number of Households and Household member ratio
+
+```{r}
+DF = tibble()
+periods = c(180103, 180406, 180709, 181012, 190103, 190406, 190709, 191012, 200103, 200406)
+for(period in periods) {
+  path = paste0("population/pop_housemember_m/", period, ".txt")
+  Df = fread(path, encoding = "UTF-8", colClasses = c("기간" = "character"))
+  Df = Df %>% filter(자치구  == "합계")
+  DF = rbind(DF, Df, use.names=F) 
+}
+DF = DF %>% filter(기간 != FALSE) %>% select(-자치구, -행정동)
+DF[, 2:ncol(DF)] = lapply(DF[, 2:ncol(DF)], function(x) as.numeric(gsub(",", "", x)))
+Qtr = paste0(DF[['기간']], ".01") %>% ymd() %>% floor_date('month')
+DF[['기간']] = Qtr
+DF
+```
+
+```{r}
+DF %>% select(-전체세대수) %>% gather("mem", "counts", -기간) %>% 
+  ggplot(aes(x=ymd(기간), y=counts, color=mem)) + geom_line() + facet_wrap(~mem, scales="free")
+```
+```{r}
+colnames(DF)[1:3] = c("date", "n_Households", "c_mem1")
+DF = DF %>% mutate(r_mem1 = c_mem1/n_Households, Households_m = n_Households/1000000, .keep="unused") %>% 
+  select(date, Households_m, r_mem1)
+DF
+```
+
+
+```{r}
+DFtemp = data.frame(date = index(zoo(NA, order.by= seq(floor_date(DF$date[1], "month"), floor_date(DF$date[nrow(DF)], "month")+90, "week"))))
+DF1 = DFtemp %>% mutate(year= year(date), month = month(date)) %>% unite("ym", year:month)
+DF2 = DF %>% mutate(year= year(date), month = month(date)) %>% unite("ym", year:month)
+
+DFweek = merge(DF1, DF2, by="ym", all.x=T) %>% select(date.x, r_mem1, Households_m) %>% arrange(date.x)
+
+DFweek[duplicated(DFweek[,2:3]), 2:3] = NA
+
+DFweek
+
+DFweek$r_mem1 = na_interpolation(DFweek$r_mem1)
+DFweek$Households_m = na_interpolation(DFweek$Households_m)
+pred_pop = data.frame(date = DFweek$date.x, r_mem1 = DFweek$r_mem1, Households_m = DFweek$Households_m)
+colnames(pred_pop)[1] = "Week"
+pred_pop
+```
+
+```{r}
+DF %>% ggplot() + geom_line(aes(x=ymd(date), y=Households_m))
+pred_pop %>% ggplot() + geom_line(aes(x=ymd(Week), y=Households_m))
+
+DF %>% ggplot() + geom_line(aes(x=ymd(date), y=r_mem1))
+pred_pop %>% ggplot() + geom_line(aes(x=ymd(Week), y=r_mem1))
+```
+
+
+
+### 오염물질
+
+```{r}
+pred_pm10 = fread("data/pollutant_pm101820_weekly.csv", encoding="UTF-8") %>% spread(gu, pollutant) %>% rowwise() %>% mutate(pm10 = mean(강남구:중랑구)) %>% select(Week, pm10) %>% filter(Week <= "2020-08-24")
+colnames(pred_pm10)[1] = "Week"
+pred_pm10$Week = ymd(pred_pm10$Week)
+DFtemp = left_join(FW[,1], pred_pm10)
+DFtemp
+```
+
+
+```{r}
+pred_pm10 = fread("data/pollutant_pm101820_weekly.csv", encoding="UTF-8") %>% spread(gu, pollutant) %>% rowwise() %>% mutate(pm10 = mean(강남구:중랑구)) %>% select(Week, pm10) %>% filter(Week <= "2020-08-24")
+colnames(pred_pm10)[1] = "Week"
+pred_pm10$Week = ymd(pred_pm10$Week)
+
+DFtemp = left_join(FW[,1], pred_pm10)
+DFtemp$pm10 = na.spline(DFtemp$pm10)
+pred_pm10 = DFtemp
+pred_pm10
+```
+
+```{r}
+pred_NO2 = fread("data/pollutant_NO21820_weekly.csv", encoding="UTF-8") %>% spread(gu, pollutant) %>% rowwise() %>% mutate(NO2 = mean(강남구:중랑구)) %>% select(Week, NO2) %>% filter(Week <= "2020-08-24")
+colnames(pred_NO2)[1] = "Week"
+pred_NO2$Week = ymd(pred_NO2$Week)
+
+DFtemp = left_join(FW[,1], pred_NO2)
+DFtemp$NO2 = na.spline(DFtemp$NO2)
+pred_NO2 = DFtemp
+pred_NO2
+```
+
+### 기온
+
+```{r}
+DF = fread("climate/temperature1820_current.csv")
+colnames(DF)[c(1,3)] = c("date", "avg_temp")
+DF = DF %>% select(date, avg_temp)
+
+Week = as.Date(cut(DF$date, "week"))
+pred_temper = aggregate(.~ Week, DF[,-1], mean, na.action = na.omit)%>% filter(Week <= "2020-08-24")
+pred_temper
+```
+
+
+## Search trend
+
+```{r}
+google = fread("search/google.csv", skip=2, encoding="UTF-8")
+colnames(google) = c("date", "google")
+naver = fread("search/naver.csv",skip= 6, encoding="UTF-8")
+colnames(naver) = c("date", "naver")
+searches = cbind(google, naver)[,c(3,2,4)]
+colnames(searches)[1] = "Week"
+searches$Week = ymd(searches$Week)
+searches
+```
+
+
+```{r}
+library(graphics)
+model = prcomp(searches[,c(3,2)],scale=T)
+summary(model)
+biplot(model)
+pc1 = predict(model)[,1]
+plot(searches$naver, pc1, col="red")
+plot(searches$google, pc1, col="blue")
+```
+
+
+
+```{r}
+searches$googNav = pc1
+searches %>% select(-googNav) %>%  gather("sources", "Idx", -Week) %>% ggplot()+
+  geom_line(aes(x=ymd(Week), y=Idx, color=sources)) + theme(legend.position="right")
+searches %>%  ggplot()+
+  geom_line(aes(x=ymd(Week), y=googNav))
+
+```
+
+```{r}
+searches = searches %>% select(Week, googNav)
+```
+
+
+## INTEGRATION!!!!!!!!!!!!!!!!!!!!!!
+
+```{r}
+DF = cbind(FW, pred_pop,pred_pm10,pred_NO2, pred_temper,searches) %>% as.data.frame()
+DF = DF[, !duplicated(colnames(DF))]
+DF
+```
+
+명절 넣기
+
+```{r}
+Holiday_dates = ymd(c("2018-02-12", "2019-09-24", "2019-02-04", "2019-09-09", "2020-01-20"))
+Holidays = rep(0, nrow(DF))
+for(i in 1:length(Holidays)){
+  if(DF$Week[i] %in% Holiday_dates) Holidays[i] = 1
+}
+DF$Holiday = Holidays
+```
+
+
+```{r}
+#write.table(DF, "data/FW1820_WEEKLY.csv", sep=",", fileEncoding = "UTF-8", row.names = F)
+DF = fread("data/FW1820_WEEKLY.csv", encoding = "UTF-8")
+DF
+```
+
+
+```{r}
+p = DF %>% ggplot()+
+  geom_line(aes(x=ymd(Week), y=Seoul), color="navy")+
+  labs(x="Week", y="Seoul total (t)", title="Seoul weekly food waste discharge (18/01~20/08)")+
+  geom_vline(xintercept = ymd("2018-07-01"), linetype="dashed", color="grey")+
+  geom_vline(xintercept = ymd("2019-01-01"), linetype="dashed")+
+  geom_vline(xintercept = ymd("2019-07-01"), linetype="dashed", color="grey")+
+  geom_vline(xintercept = ymd("2020-07-01"), linetype="dashed", color="grey")+
+  geom_vline(xintercept = ymd("2020-01-01"), linetype="dashed")+theme_bw()+
+  theme(panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank())
+p
+ggsave("fig01.jpg")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

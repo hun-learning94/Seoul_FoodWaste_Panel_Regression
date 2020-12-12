@@ -1,0 +1,275 @@
+---
+title: "FW M EDA"
+author: "Kang Gyeonghun"
+date: "12/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2',"ggmap", "data.table","raster", "rgeos", "maptools", "rgdal")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, require, character.only=T)
+```
+
+```{r}
+seoul_fx = fread("data/model5_fx.csv")
+seoul_rx = fread("data/model5_rx.csv")
+colnames(seoul_rx)[2] = "intercept"
+codeid = read.csv("map/sample.csv", header=T)%>% arrange(시군구명)
+```
+```{r}
+seoul_rx_fx = seoul_rx
+seoul_rx_fx$intercept  = seoul_rx_fx$intercept+  seoul_fx$x[1]
+seoul_rx_fx$month_int  = seoul_rx_fx$month_int+ seoul_fx$x[2]
+```
+
+```{r}
+seoul_rx_fx %>% ggplot(aes(x=reorder(V1, intercept), y=intercept)) + geom_bar(stat="identity", fill="cornflowerblue", color="white")+ 
+  theme_bw()+theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5))+
+  labs(title="자치구별 수준", x="", y="")
+
+seoul_rx_fx %>% ggplot(aes(x=reorder(V1, month_int), y=month_int)) + geom_bar(stat="identity",fill="cornflowerblue", color="white")+ 
+  theme_bw()+theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5))+
+  labs(title="자치구별 배출량 경향 (18/01 ~ 20/06)", x="", y="")
+ggsave("figures/barplot01.png", width=6, height=4)
+
+seoul_rx_fx %>% ggplot(aes(x=reorder(V1, age_05), y= age_05)) + geom_bar(stat="identity",fill="cornflowerblue", color="white")+ 
+  theme_bw()+theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5))+
+  labs(title="자치구별 영유아 영향 (18/01 ~ 20/06)", x="", y="")
+ggsave("figures/barplot02.png", width=6, height=4)
+
+seoul_rx_fx %>% ggplot(aes(x=reorder(V1, mem1), y=mem1)) + geom_bar(stat="identity",fill="cornflowerblue", color="white")+ 
+  theme_bw()+theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5))+
+  labs(title="자치구별 1인가구 영향 (18/01 ~ 20/06)", x="", y="")
+ggsave("figures/barplot03.png", width=6, height=4)
+
+seoul_rx_fx %>% ggplot(aes(x=reorder(V1, nBusiness), y= nBusiness)) + geom_bar(stat="identity",fill="cornflowerblue", color="white")+ 
+  theme_bw()+theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5))+
+  labs(title="자치구별 식당수 영향 (18/01 ~ 20/06)", x="", y="")
+ggsave("figures/barplot04.png", width=6, height=4)
+
+```
+
+
+```{r}
+seoul_rx_fx = rbind(seoul_rx_fx, data.frame(V1 = c("강남구", "강북구", "용산구")), fill=T) %>% arrange(V1)
+seoul_rx_fx$id = codeid$id
+seoul_rx_fx
+```
+
+
+
+```{r}
+map = shapefile("map/SIG_202005/SIG.shp")
+map = spTransform(map, CRSobj = CRS('+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'))
+new_map = fortify(map, region='SIG_CD')
+```
+```{r}
+new_map$id = as.numeric(new_map$id)
+seoul_map = new_map[new_map$id <= 11740,]
+P_merge = merge(seoul_map, seoul_rx_fx, by='id')
+```
+
+## PLOT PLOT PLOT!!
+
+```{r}
+Seoulplot <- ggplot() + geom_polygon(data = P_merge, aes(x=long, y=lat, group=group, fill = month_int), color="white")
+Seoulplot + scale_fill_gradient(
+  low = "snow2",
+  high = "steelblue4",
+  space = "Lab",
+  guide = "colourbar"
+) +
+  theme_bw() + labs(title = "자치구별 배출량 증가 속도", x = "", y = "") +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y= element_blank(),
+    legend.position = c(0.1, 0.8),
+    legend.background = element_blank(),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5)
+  ) + coord_fixed(ratio = 1.2)
+ggsave("figures/map01.png", width=6, height=5)
+
+Seoulplot <- ggplot() + geom_polygon(data = P_merge, aes(x=long, y=lat, group=group, fill = mem1), color="white")
+Seoulplot + scale_fill_gradient(
+  low = "snow2",
+  high = "steelblue4",
+  space = "Lab",
+  guide = "colourbar"
+) +
+  theme_bw() + labs(title = "자치구별 1인 가구 영향", x = "", y = "") +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y= element_blank(),
+    legend.position = c(0.1, 0.8),
+    legend.background = element_blank(),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5)
+  ) + coord_fixed(ratio = 1.2)
+ggsave("figures/map02.png", width=6, height=5)
+```
+
+
+```{r}
+DF= fread("data/FW_pastpred.csv", encoding="UTF-8")
+DF
+```
+
+```{r}
+DF_past = DF %>% filter(Month >= "2019-07-01" & Month <= "2020-06-01") %>% filter(type=="FW_t") %>% dplyr::select(Month, gu, FW) %>% spread(gu, FW)%>% summarize(across(-Month, mean)) %>% gather("gu", "FW_1920")
+
+DF_pred = DF %>% filter(Month >= "2020-07-01" & Month <= "2021-06-01") %>% filter(type=="pred") %>% dplyr::select(Month, gu, FW) %>% spread(gu, FW) %>% summarize(across(-Month, mean)) %>% gather("gu", "FW_2021")
+
+DF_pastpred= merge(DF_past, DF_pred, by="gu")
+
+colnames(codeid)[2] = "gu"
+DF_pastpred = merge(subset(codeid, select=c(gu, id)), DF_pastpred, by="gu", all.x=T)
+DF_pastpred_plot = merge(seoul_map, DF_pastpred, by='id')
+```
+
+
+
+
+
+```{r}
+Seoulplot <- ggplot() + geom_polygon(data = DF_pastpred_plot, aes(x=long, y=lat, group=group, fill = exp(FW_1920)), color="white")
+Seoulplot + scale_fill_gradient(
+  low = "snow2",
+  high = "steelblue4",
+  space = "Lab",
+  guide = "colourbar"
+) +
+  theme_bw() + labs(title = "자치구별 월평균 배출량(t) (19.07~20.06)", x = "", y = "", color="FW/m(t)") +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y= element_blank(),
+    legend.position = c(0.1, 0.8),
+    legend.background = element_blank(),
+    legend.title = element_blank(),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5)
+  ) + coord_fixed(ratio = 1.2)
+ggsave("figures/map03.png", width=6, height=5)
+
+Seoulplot <- ggplot() + geom_polygon(data = DF_pastpred_plot, aes(x=long, y=lat, group=group, fill = exp(FW_2021)), color="white")
+Seoulplot + scale_fill_gradient(
+  low = "snow2",
+  high = "steelblue4",
+  space = "Lab",
+  guide = "colourbar"
+) +
+  theme_bw() + labs(title = "자치구별 예상 월평균 배출량(t) (20.07~21.06)", x = "", y = "") +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y= element_blank(),
+    legend.position = c(0.1, 0.8),
+    legend.background = element_blank(),
+    legend.title = element_blank(),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5)
+  ) + coord_fixed(ratio = 1.2)
+ggsave("figures/map04.png", width=6, height=5)
+```
+
+
+
+```{r}
+filter(DF_pastpred, !(gu %in% c("강남구", "강북구", "용산구"))) %>% ggplot(aes(x=reorder(gu, FW_1920), y=exp(FW_1920)))+ geom_bar(stat="identity",fill="grey", color="white")+ 
+  theme_bw()+theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5))+
+  labs(title="자치구별 월평균 배출량 (19/07 ~ 20/06)", x="", y="")
+ggsave("figures/barplot05.png", width=5, height=4)
+
+filter(DF_pastpred, !(gu %in% c("강남구", "강북구", "용산구"))) %>% ggplot(aes(x=reorder(gu, FW_1920), y=exp(FW_2021)))+ geom_bar(stat="identity",fill="grey", color="white")+ 
+  theme_bw()+theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5))+
+  labs(title="자치구별 예상 월평균 배출량 (20/07 ~ 21/06)", x="", y="")
+ggsave("figures/barplot06.png", width=5, height=4)
+
+
+filter(DF_pastpred, !(gu %in% c("강남구", "강북구", "용산구"))) %>% mutate(FW_diff = FW_2021-FW_1920) %>% ggplot(aes(x=reorder(gu, FW_diff), y=FW_diff))+
+ geom_bar(stat="identity",fill="firebrick4", color="white")+ 
+  theme_bw()+theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5))+
+  labs(title="자치구별 배출량 전년대비 증가율 %", x="", y="")
+ggsave("figures/barplot07.png", width=10, height=4)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,670 @@
+---
+title: "FW181920"
+author: "Kang Gyeonghun"
+date: '2020 10 28 '
+output:
+  html_document:
+    theme: cerulean
+    toc: true
+    toc_float:
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+oldloc
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2','jsonlite','httr', 'urltools', "lubridate", "data.table")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, library, character.only=T)
+```
+
+<br>
+
+## API
+
+https://www.data.go.kr/iim/api/selectAPIAcountView.do
+
+### 1. 전체종합배출량, 일별
+
+**예시 URL**
+```
+http://apis.data.go.kr/B552584/RfidFoodWasteService/getTotalDateList
+?serviceKey=BMFNxiAVN3gUpziAJUsnJnv%2B5wrn8Jkl5ieEvipJrcVfpBM%2BQoxIa%2BawLLwRwmrAMlNVWZoVQxh5yFU2BqwARw%3D%3D
+&type=json
+&disYear=2020
+&disMonth=01
+&page=1
+&rowNum=10
+```
+
+```{r, eval=F}
+operation = "http://apis.data.go.kr/B552584/RfidFoodWasteService/getTotalDateList"
+key = urltools::url_decode("BMFNxiAVN3gUpziAJUsnJnv%2B5wrn8Jkl5ieEvipJrcVfpBM%2BQoxIa%2BawLLwRwmrAMlNVWZoVQxh5yFU2BqwARw%3D%3D")
+params = list(
+  serviceKey = key,
+  type = "json",
+  disYear = "2019",
+  disMonth = '01',
+  page= 1,
+  rowNum=10
+)
+
+YYYY = c("2017", "2018", "2019", "2020")
+MM = c("01", "02","03","04","05", "06", "07", "08", "09", "10", "11", "12")
+result = data.frame()
+
+for(Y in YYYY) {
+  params[['disYear']] = Y
+  for (M in MM) {
+    params[['disMonth']] = M
+    for (i in 1:4) {
+      params[['page']] = i
+      total = httr::GET(operation, query = params)
+      totalText = httr::content(total, "text") %>% jsonlite::fromJSON(flatten = TRUE)
+      result = rbind(result, totalText$data$list)
+    }
+  }
+}
+head(result)
+```
+
+<br>
+
+간단히 시각화해보기
+```{r,eval=F}
+p = result %>%
+  unite("date", disYear:disDate) %>%
+  mutate(date = ymd(date), disQuantity = log(disQuantity)) %>%
+  ggplot(aes(x = date, y = disQuantity)) +
+  geom_line() + theme_bw() + theme(panel.grid.major = element_blank(),
+                                   panel.grid.minor = element_blank()) +
+  labs(title = "Nationwide Food Waste Aggregate, 201707~202007", x = "Date", y = "food waste (logarized)")
+ggsave("plot01.png", p, height=4, width=6)
+p
+```
+저장
+```{r, eval=FALSE}
+write.table(result, file="total1720.csv", sep = ",", row.names = FALSE)
+```
+
+
+
+<br>
+
+### 2. 지자체 정보 목록 조회
+
+**예시 URL**
+```
+http://apis.data.go.kr/B552584/RfidFoodWasteService/getCityList?
+serviceKey=BMFNxiAVN3gUpziAJUsnJnv%2B5wrn8Jkl5ieEvipJrcVfpBM%2BQoxIa%2BawLLwRwmrAMlNVWZoVQxh5yFU2BqwARw%3D%3D
+&type=json
+&page=1
+&rowNum=200
+```
+
+```{r,eval=F}
+operation = "http://apis.data.go.kr/B552584/RfidFoodWasteService/getCityList"
+key = urltools::url_decode("BMFNxiAVN3gUpziAJUsnJnv%2B5wrn8Jkl5ieEvipJrcVfpBM%2BQoxIa%2BawLLwRwmrAMlNVWZoVQxh5yFU2BqwARw%3D%3D")
+params = list(
+  serviceKey = key,
+  type = "json",
+  rowNum = 200
+)
+out = httr::GET(operation, query = params)
+outText = httr::content(out, "text") %>% jsonlite::fromJSON(flatten=TRUE)
+outTextdf = outText$data$list
+head(outTextdf)
+```
+
+<br>
+
+서울특별시 구들 코드만 따로 저장
+```{r}
+# write.table(outTextdf, file="citycode.csv", sep = ",", row.names = FALSE, fileEncoding = "UTF-8")
+citycodes = fread("data/citycode.csv", encoding = "UTF-8")
+seoulCode = rbind(citycodes[1:24,], tail(citycodes,1))
+head(seoulCode)
+```
+
+<br>
+
+### 3. 서울특별시 배출내역(일별) 목록 조회
+
+**예시 URL**
+
+```
+http://apis.data.go.kr/B552584/RfidFoodWasteService/getCityDateList?
+serviceKey=BMFNxiAVN3gUpziAJUsnJnv%2B5wrn8Jkl5ieEvipJrcVfpBM%2BQoxIa%2BawLLwRwmrAMlNVWZoVQxh5yFU2BqwARw%3D%3D
+&type=json
+&disYear=2019
+&disMonth=01
+&cityCode=W0D
+&page=1
+&rowNum=10
+```
+
+
+```{r, eval=F}
+YYYY = c("2018", "2019", "2020")
+MM = c("01", "02","03","04","05", "06", "07", "08", "09", "10", "11", "12")
+operation = "http://apis.data.go.kr/B552584/RfidFoodWasteService/getCityDateList"
+key = urltools::url_decode("BMFNxiAVN3gUpziAJUsnJnv%2B5wrn8Jkl5ieEvipJrcVfpBM%2BQoxIa%2BawLLwRwmrAMlNVWZoVQxh5yFU2BqwARw%3D%3D")
+params = list(
+      serviceKey = key,
+      type = "json",
+      disYear = NA,
+      disMonth = NA,
+      cityCode = NA,
+      page = 1,
+      rowNum = 100
+    )
+
+delay_seconds = 1.0
+result = data.frame()
+
+for(city in seoulCode$cityCode) {
+  cat(city, "\n")
+  date_time <- Sys.time()
+  while ((as.numeric(Sys.time()) - as.numeric(date_time)) < delay_seconds) {}
+  for (Y in YYYY) {
+    date_time <- Sys.time()
+    while ((as.numeric(Sys.time()) - as.numeric(date_time)) < delay_seconds) {}
+    for (M in MM) {
+      params[['disYear']] = Y
+      params[['disMonth']] = M
+      params[['cityCode']] = city
+      resText = httr::GET(operation, query = params)%>% httr::content("text") %>% jsonlite::fromJSON(flatten = TRUE)
+      result = rbind(result, resText$data$list)
+    }
+  }
+}
+```
+
+```{r, eval=F}
+dim(result)
+#write.table(result, file="181920raw.csv", sep = ",", row.names = FALSE, fileEncoding = "UTF-8")
+```
+
+### 181920 데이터 정리!!
+
+```{r}
+DFraw = fread("181920raw.csv", encoding = "UTF-8")
+```
+
+
+```{r}
+DFedit = DFraw %>% 
+  unite("date", disYear:disDate) %>% 
+  mutate(date = ymd(date), disQuantity_t = disQuantity/1e6) %>% 
+  filter(year(date) > 2017) %>% 
+  select(date, cityCode, disQuantity_t)
+head(DFedit)
+```
+
+```{r}
+fw181920 = DFedit %>% spread(cityCode, disQuantity_t)
+colnames(fw181920)[-1] = seoulCode$citySggName
+fw181920 = fw181920 %>% select(sort(tidyselect::peek_vars()))
+head(fw181920)
+```
+
+```{r}
+#write.table(fw181920, file = "data/fw181920_gu.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+```
+
+```{r}
+fw181920_gu = fread("data/fw181920_gu.csv", encoding="UTF-8")
+head(fw181920_gu)
+```
+
+```{r}
+Week = as.Date(cut(fw181920_gu$date, "week"))
+fw181920_gu_weekly = aggregate(.~ Week, fw181920_gu[,-1], sum, na.action=NULL)
+fw181920_gu_weekly = fw181920_gu_weekly[1:(nrow(fw181920_gu_weekly)-1), ]
+head(fw181920_gu_weekly)
+
+fw181920_long_weekly = fw181920_gu_weekly %>% gather("gu", "disq_t", -Week)
+head(fw181920_long_weekly)
+```
+
+
+```{r}
+fw181920_long = fw181920_gu %>% gather("gu", "disq_t", -date)
+head(fw181920_long)
+```
+
+
+
+**Visualize**
+
+```{r}
+"%ni%" <- Negate("%in%")
+fw181920_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:12]) %>% 
+  filter(gu %ni% c("강남구","강북구","관악구")) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw181920_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[13:18]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw181920_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:24]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+
+```{r}
+"%ni%" <- Negate("%in%")
+fw181920_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:12]) %>% 
+  filter(gu %ni% c("강남구","강북구","관악구")) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(date), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw181920_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[13:18]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(date), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw181920_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:24]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(date), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+
+**Handling outliers**
+
+```{r}
+fw181920_long %>% filter(gu=="양천구") %>% ggplot()+geom_histogram(aes(x=disq_t), bins=100)
+fw181920_gu %>% select(date, 양천구) %>% filter(양천구 > 1000)
+```
+```{r}
+rowid = which(fw181920_gu[,"양천구"] > 1000)
+fw181920_gu[c(-1,0,1)+rowid, "양천구"]
+fw181920_gu[rowid, "양천구"] = fw181920_gu[rowid, "양천구"]/100
+fw181920_gu[c(-1,0,1)+rowid, "양천구"]
+fw181920_long = fw181920_gu %>% gather("gu", "disq_t", -date)
+```
+
+```{r}
+#write.table(fw181920_gu, "data/fw181920_gu_outlierhandled.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+fw181920_gu = fread("data/fw181920_gu_outlierhandled.csv", encoding="UTF-8")
+```
+
+
+
+**Daily to weekly**
+```{r}
+Week = as.Date(cut(fw181920_gu$date, "week"))
+fw181920_gu_weekly = aggregate(.~ Week, fw181920_gu[,-1], sum, na.action=NULL)
+fw181920_gu_weekly = fw181920_gu_weekly[1:(nrow(fw181920_gu_weekly)-1), ]
+head(fw181920_gu_weekly)
+
+fw181920_long_weekly = fw181920_gu_weekly %>% gather("gu", "disq_t", -Week)
+head(fw181920_long_weekly)
+```
+
+```{r}
+"%ni%" <- Negate("%in%")
+fw181920_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:12]) %>% 
+  filter(gu %ni% c("강남구","강북구","관악구")) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw181920_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[13:18]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw181920_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:24]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+
+```{r}
+"%ni%" <- Negate("%in%")
+fw181920_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:12]) %>% 
+  filter(gu %ni% c("강남구","강북구","관악구")) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(date), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw181920_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[13:18]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(date), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw181920_long %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:24]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(date), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+
+**Communities with missing data**
+
+```{r}
+fw181920_long_weekly %>% 
+  filter(gu %in% c("강남구","강북구","관악구")) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="top")
+
+fw181920_long_weekly %>% 
+  filter(gu %in% c("강남구","강북구","관악구")) %>% 
+  filter(year(Week) == 2020) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="top")
+```
+
+비중이 많이 바뀌는가?
+
+```{r}
+fw_weight = fw181920_gu_weekly
+fw_weight %>% select(-Week) %>% rowSums(na.rm=T) -> fw_weight$서울시
+fw_weight = data.frame(Week=fw_weight$Week, fw_weight[, -1] / fw_weight$서울시)
+fw_weight[,c(1, 2:9)] %>% gather("gu", "weight", -Week) %>% ggplot(aes(x=Week, y=weight, color=gu))+geom_line(size=1.5)
+fw_weight[,c(1, 10:17)] %>% gather("gu", "weight", -Week) %>% ggplot(aes(x=Week, y=weight, color=gu))+geom_line(size=1.5)
+fw_weight[,c(1, 18:25)] %>% gather("gu", "weight", -Week) %>% ggplot(aes(x=Week, y=weight, color=gu))+geom_line(size=1.5)
+```
+
+
+1. 관악구
+```{r}
+fw181920_guanak = fw181920_gu %>% select(date, 관악구)
+idx = min(which(!is.na(fw181920_guanak[,'관악구'])))
+fw181920_gu[,date][idx]
+```
+
+```{r}
+fw18H2_gu = fw181920_gu %>% filter(year(date) == 2018) %>% filter(month(date) == 7)
+fw18H2_gu %>% select(-date) %>% rowSums(na.rm=T) -> fw18H2_gu$서울시
+fw18H2_gu_percent = data.frame(date = fw18H2_gu$date, fw18H2_gu[,-1] / fw18H2_gu$서울시)
+(guanak18H1weight = mean(fw18H2_gu_percent[,'관악구']))
+```
+
+dates to be imputed
+```{r}
+guanak_missing_idx = (fw181920_gu$date >= "2018-01-01" & fw181920_gu$date <= "2018-06-30")
+fw181920_gu[guanak_missing_idx, 관악구]
+```
+
+
+2. 강북구, 강남구
+```{r}
+fw20_gu = fw181920_gu %>% filter(year(date) == 2020)
+fw20_gu %>% select(-date) %>% rowSums() -> fw20_gu$서울시
+fw20_gu_percent = data.frame(date=fw20_gu$date, fw20_gu[, -1] / fw20_gu$서울시)
+fw20_gu_percent_08 = fw20_gu_percent %>% filter(month(date) == 8)
+weights = apply(fw20_gu_percent_08[, -1], 2, mean)
+(gangnam181920weight = weights['강남구'])
+(gangbuk181920weight = weights['강북구'])
+```
+dates to be imputed: 모든 기간
+
+$$
+obssum = truesum \times (1-\alpha)\\
+truesum = obssum \times \dfrac{1}{1-\alpha}\\
+missing=truesum\times \alpha = obssum \times \dfrac{\alpha}{1-\alpha}\\ 
+(obssum +missing = obssum \times \dfrac{1}{1-\alpha} =truesum)
+$$
+
+inflate obs sum (estimate true sum)
+```{r}
+fw181920_gu_imputed = fw181920_gu
+obsSum = data.frame(date = fw181920_gu_imputed$date)
+fw181920_gu_imputed %>% select(-date) %>% rowSums(na.rm=T) -> obsSum$total
+obsSum[guanak_missing_idx, "total"] = obsSum[guanak_missing_idx, "total"] * 1 / (1-guanak18H1weight - gangnam181920weight - gangbuk181920weight)
+obsSum[-guanak_missing_idx, "total"] = obsSum[-guanak_missing_idx, "total"] * 1 / (1 - gangnam181920weight - gangbuk181920weight)
+```
+
+
+impute missing values
+```{r}
+fw181920_gu_imputed[guanak_missing_idx, "관악구"] = obsSum[guanak_missing_idx, "total"] * guanak18H1weight
+fw181920_gu_imputed[, "강남구"] = obsSum[, "total"] * gangnam181920weight
+fw181920_gu_imputed[, "강북구"] = obsSum[, "total"] * gangbuk181920weight
+```
+
+see results
+```{r}
+fw181920_total_imputed = fw181920_gu_imputed %>% gather("gu", "disq_t", -date)
+
+fw181920_total_imputed %>% 
+  filter(gu %in% c("강남구","강북구","관악구")) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(date), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="top")
+
+fw181920_total_imputed %>% 
+  filter(gu %in% c("강남구","강북구","관악구")) %>% 
+  filter(year(date) == 2020) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(date), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="top")
+```
+
+```{r}
+Week = as.Date(cut(fw181920_gu_imputed$date, "week"))
+fw181920_gu_imputed_weekly = aggregate(.~ Week, fw181920_gu_imputed[,-1], sum, na.action=NULL)
+fw181920_gu_imputed_weekly = fw181920_gu_imputed_weekly[1:(nrow(fw181920_gu_imputed_weekly)-1), ]
+head(fw181920_gu_imputed_weekly)
+
+fw181920_long_imputed_weekly = fw181920_gu_imputed_weekly %>% gather("gu", "disq_t", -Week)
+head(fw181920_long_imputed_weekly)
+```
+
+```{r}
+fw181920_long_imputed_weekly %>% 
+  filter(gu %in% c("강남구","강북구","관악구")) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="top")
+
+fw181920_long_imputed_weekly %>% 
+  filter(gu %in% c("강남구","강북구","관악구")) %>% 
+  filter(year(Week) == 2020) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="top")
+```
+
+
+
+```{r}
+#write.table(fw181920_gu_imputed_weekly, "data/fw181920_gu_imputed_weekly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+#write.table(fw181920_long_imputed_weekly, "data/fw181920_long_imputed_weekly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+fw181920_gu_imputed_weekly = fread("data/fw181920_gu_imputed_weekly.csv", encoding = "UTF-8")
+fw181920_long_imputed_weekly = fread("data/fw181920_long_imputed_weekly.csv", encoding = "UTF-8")
+```
+
+```{r}
+fw181920_total_imputed_weekly = data.frame(week = fw181920_gu_imputed_weekly$Week, disq_t = rowSums(fw181920_gu_imputed_weekly[,-1]))
+ggplot(fw181920_total_imputed_weekly) + geom_line(aes(x=ymd(week), y=disq_t))
+dim(fw181920_total_imputed_weekly)
+```
+
+
+
+### 2017년 데이터도 포함하자~!
+
+```{r}
+fw17 = fread("fw2017seoul.csv", encoding = "UTF-8")
+fw17 = fw17 %>% unite("date", c("년도", "월", "일"), sep="-") %>% mutate(date = ymd(date)) %>% 
+  select("date", "지자체명", "배출량(kg)")
+colnames(fw17)[3] = "disq_t"
+fw17_gu = fw17 %>% mutate(disq_t = as.numeric(gsub(",", "", disq_t))/1e6) %>% spread("지자체명", disq_t)
+head(fw17_gu)
+```
+
+```{r}
+Week = as.Date(cut(fw17_gu$date, "week"))
+fw17_gu_weekly = aggregate(.~ Week, fw17_gu[,-1], sum, na.action=NULL)
+fw17_gu_weekly = fw17_gu_weekly[2:(nrow(fw17_gu_weekly)), ]
+head(fw17_gu_weekly)
+
+fw17_long_weekly = fw17_gu_weekly %>% gather("gu", "disq_t", -Week)
+head(fw17_long_weekly)
+sum(is.na(fw17_long_weekly$disq_t)) # NA 없음
+
+fw17_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:12]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw17_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[13:18]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw17_long_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:24]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+
+inflate obs sum (estimate true sum)
+```{r}
+fw17_gu_imputed = fw17_gu
+obsSum = data.frame(date = fw17_gu_imputed$date)
+fw17_gu_imputed %>% select(-date) %>% rowSums(na.rm=T) -> obsSum$total
+obsSum[, "total"] = obsSum[, "total"] * 1 / (1-guanak18H1weight - gangnam181920weight - gangbuk181920weight)
+```
+
+impute missing values
+```{r}
+fw17_gu_imputed[, "관악구"] = obsSum[, "total"] * guanak18H1weight
+fw17_gu_imputed[, "강남구"] = obsSum[, "total"] * gangnam181920weight
+fw17_gu_imputed[, "강북구"] = obsSum[, "total"] * gangbuk181920weight
+```
+
+```{r}
+fw17_gu_imputed = fw17_gu_imputed %>% select(sort(tidyselect::peek_vars()))
+head(fw17_gu_imputed)
+```
+
+Rbind 17181920 and display results and visualize results 
+
+```{r}
+fw17_gu_imputed$date = ymd(fw17_gu_imputed$date)
+fw181920_gu_imputed$date = ymd(fw181920_gu_imputed$date)
+fw1720_gu_imputed = rbind(fw17_gu_imputed, fw181920_gu_imputed, use.names=F)
+fw1720_long_imputed = fw1720_gu_imputed %>% gather("gu", "disq_t", -date)
+
+Week = as.Date(cut(fw1720_gu_imputed$date, "week"))
+fw1720_gu_imputed_weekly = aggregate(.~ Week, fw1720_gu_imputed[,-1], sum, na.action=NULL)
+fw1720_gu_imputed_weekly = fw1720_gu_imputed_weekly[2:(nrow(fw1720_gu_imputed_weekly)-1), ]
+head(fw1720_gu_imputed_weekly)
+
+fw1720_long_imputed_weekly = fw1720_gu_imputed_weekly %>% gather("gu", "disq_t", -Week)
+head(fw1720_long_imputed_weekly)
+sum(is.na(fw1720_long_imputed_weekly$disq_t)) # NA 없음
+
+fw1720_long_imputed_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[1:12]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1720_long_imputed_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[13:18]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+
+fw1720_long_imputed_weekly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[19:24]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Week), y=disq_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")
+```
+
+```{r}
+#write.table(fw1720_gu_imputed, "data/fw1720_gu_imputed.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+#write.table(fw1720_long_imputed, "data/fw1720_long_imputed.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+#write.table(fw1720_gu_imputed_weekly, "data/fw1720_gu_imputed_weekly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+#write.table(fw1720_long_imputed_weekly, "data/fw1720_long_imputed_weekly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+head(fread("data/fw1720_gu_imputed.csv", encoding = "UTF-8"))
+```
+
+
+```{r}
+fw1720_total_imputed_weekly = data.frame(Week = fw1720_gu_imputed_weekly$Week, disq_t = rowSums(fw1720_gu_imputed_weekly[,-1]))
+ggplot(fw1720_total_imputed_weekly) + geom_line(aes(x=ymd(Week), y=disq_t), size=1.2)
+dim(fw1720_total_imputed_weekly)
+#write.table(fw1720_total_imputed_weekly, "data/fw1720_seoul_weekly.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+```
+
+비중이 많이 바뀌는가?
+
+```{r}
+fw_weight = fw1720_gu_imputed_weekly
+fw_weight %>% select(-Week) %>% rowSums(na.rm=T) -> fw_weight$서울시
+fw_weight = data.frame(Week=fw_weight$Week, fw_weight[, -1] / fw_weight$서울시)
+fw_weight[,c(1, 2:9)] %>% gather("gu", "weight", -Week) %>% ggplot(aes(x=Week, y=weight, color=gu))+geom_line(size=1.5)
+fw_weight[,c(1, 10:17)] %>% gather("gu", "weight", -Week) %>% ggplot(aes(x=Week, y=weight, color=gu))+geom_line(size=1.5)
+fw_weight[,c(1, 18:25)] %>% gather("gu", "weight", -Week) %>% ggplot(aes(x=Week, y=weight, color=gu))+geom_line(size=1.5)
+```
+
+
+

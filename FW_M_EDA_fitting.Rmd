@@ -1,0 +1,601 @@
+---
+title: "FW M EDA"
+author: "Kang Gyeonghun"
+date: "12/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2',"lubridate", "data.table","corrplot", "lme4")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, require, character.only=T)
+```
+데이터 불러오기
+```{r}
+DF = fread("data/FW1820_GU_MONTHLY.csv", encoding = "UTF-8") %>% filter(gu!= "용산구")
+DF2 = DF %>% mutate(avgFW_t = FW_t*1000000 / TotalHouses)
+GU1 = unique(DF$gu)[1:6]
+GU2 = unique(DF$gu)[7:12]
+GU3 = unique(DF$gu)[13:18]
+GU4 = unique(DF$gu)[19:23]
+```
+
+
+## EDA
+
+```{r}
+DF2 %>% ggplot(aes(x=reorder(gu, avgFW_t), y= log(avgFW_t)))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, FW_t), y=log(FW_t)))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, TotalHouses), y=TotalHouses))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, age_05), y=age_05))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, age1929), y=age1929))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, age65_), y=age65_))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, mem1), y=mem1))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, AvgMem), y=AvgMem))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, IncLv), y=IncLv))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, Suv1yr), y=Suv1yr))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, NO2), y=NO2))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+DF %>% ggplot(aes(x=reorder(gu, pm10), y=pm10))+geom_boxplot()+theme_bw() + theme(axis.text.x = element_text(angle=90))
+```
+
+
+```{r}
+DF %>% ggplot(aes(x=reorder(gu, FW_t), y=log(FW_t)))+geom_boxplot(fill="steelblue", color="black",outlier.shape=NA)+theme_bw() + 
+  theme(axis.text.x = element_text(angle=45, margin= margin(t=15)), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank())+
+  labs(title="FW discharge per gu", x="자치구", y="log of FW/m (t)")
+ggsave("figures/fig02.png", width = 6, height=4)
+```
+
+
+```{r}
+aov(log(FW_t) ~ gu, DF) %>% summary()
+aov(Suv1yr ~gu, DF) %>% summary()
+aov(pm10 ~gu, DF) %>% summary()
+aov(NO2 ~gu, DF) %>% summary()
+```
+
+```{r}
+filter(DF, gu %in% unique(DF$gu)[1:6])  %>% ggplot(aes(x=Month, y=FW_t, group=gu)) + geom_line(col="navyblue")+ facet_wrap(~gu, scales="free") +
+  labs(title="FW discharge per gu", x="Month", y="FW (t)")+theme_bw()
+ggsave("figures/fig01.png")
+```
+```{r}
+DF %>%  ggplot(aes(x=Month, y=log(FW_t), color=gu)) + geom_line(size=1) + theme_bw()
+filter(DF, gu != "용산구") %>%  ggplot(aes(x=Month, y=log(FW_t), color=gu)) + geom_line(size=1) + theme_bw()
+```
+
+```{r}
+DF2 = DF %>% filter(gu != "용산구")
+DF2$month_int =rep(0:29, length(unique(DF2$gu)))
+ml = lmList(log(FW_t) ~ I(month_int) |gu, DF2)
+intercepts = sapply(ml, coef)[1,]
+slopes = sapply(ml, coef)[2,]
+dfplot = data.frame(intercepts=intercepts, slopes=slopes)
+dfplot$gu = row.names(dfplot)
+dfplot %>% ggplot(aes(x=intercepts, y=slopes,color=gu, label=gu)) + geom_point(size=2)+
+  geom_text(hjust=0, vjust=1) +theme_bw()+theme(legend.position = "none")+
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank())+
+  labs(title="log(FW)~ I(Month)| gu", x="Intercepts", y="Slopes")
+ggsave("figures/fig03.png", width=6, height=4)
+```
+
+
+
+
+```{r}
+DF2 %>% ggplot(aes(x=TotalHouses, y=log(FW_t), color=gu)) + geom_point()  +theme_bw() 
+DF2  %>% ggplot(aes(x=age_05, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=age1929, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=age65_, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=mem1, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=AvgMem, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=IncLv, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=nBusiness, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=Suv1yr, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=NO2, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=pm10, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=avg_temp, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=search, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+DF2  %>% ggplot(aes(x=Holidays, y=log(FW_t), color=gu)) + geom_point()  +theme_bw()
+```
+
+
+
+
+```{r}
+DF2 %>% filter(gu %in% c(GU1,GU2))  %>% ggplot(aes(x=TotalHouses, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2 %>% filter(gu %in% c(GU3,GU4))  %>% ggplot(aes(x=TotalHouses, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2 %>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=age_05, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=age_05, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=age1929, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=age1929, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=age65_, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=age65_, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=mem1, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=mem1, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=AvgMem, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=AvgMem, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=nBusiness, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=nBusiness, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=Suv1yr, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=Suv1yr, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=NO2, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=NO2, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=pm10, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=pm10, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=avg_temp, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=avg_temp, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+
+DF2%>% filter(gu %in% c(GU1,GU2)) %>% ggplot(aes(x=search, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+DF2%>% filter(gu %in% c(GU3,GU4)) %>% ggplot(aes(x=search, y=log(FW_t))) + geom_point() + facet_wrap(.~ gu, scale="free")+stat_smooth(method="lm")
+```
+
+
+
+## Data preprocessing
+
+1. Scale & transform
+```{r}
+DF = fread("data/FW1820_GU_MONTHLY.csv", encoding = "UTF-8") %>% filter(gu != "용산구")
+DF$Suv1yr = DF$Suv1yr/100
+DF$month_int =rep(0:29, length(unique(DF$gu)))
+DF = DF %>% select(Month,gu, FW_t, month_int, everything())
+DF
+```
+```{r}
+DF[, 4:ncol(DF)] %>% gather() %>% ggplot(aes(value)) + geom_histogram(bins=10) + facet_wrap(~key, scales="free")+theme_bw()
+```
+y인 FW_t 를 로그변환, 나머지 x들은 분포 자체는 뭐든간에 크게 상관없음. 다만 스케일들이 너무 다르면 모델 피팅할때 계산이 뻑나거나 베타 해석이 거시기하므로 수치형 변수들은 정규화해준다. 
+
+```{r}
+### standardized X
+col_scale = colnames(DF)[!(colnames(DF) %in% c("Month", "gu", "FW_t", "Holidays"))]
+col_scale_mean = sapply(select(DF, all_of(col_scale)), mean)
+col_scale_sd = sapply(select(DF, all_of(col_scale)), sd)
+mean_sd_info = data.frame(mean = col_scale_mean, sd = col_scale_sd)
+round(mean_sd_info, 2)
+scale_hun = function(x) (x-mean(x))/sd(x)
+
+### log transform y
+DF_ppd = DF %>% modify_at(col_scale, scale_hun) %>% modify_at("FW_t", log)
+DF_ppd
+```
+
+```{r}
+DF_ppd[, 3:ncol(DF_ppd)] %>% gather() %>% ggplot(aes(value)) + geom_histogram(bins=20, fill="cornflowerblue", color="white") + facet_wrap(~key, scales="free")+theme_bw()+
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.y= element_blank())+
+  labs(title="Preprocessed Xs and y", x="", y="")
+ggsave("figures/fig04.png", width=6, height=4)
+```
+
+
+2. Check correlations of X
+
+```{r}
+Xs = DF_ppd[,4:ncol(DF_ppd)]
+Xs_corr = cor(Xs)
+
+# compute matrix of p-value
+cor.mtest = function(mat, ...){
+  mat = as.matrix(mat)
+  n = ncol(mat)
+  p.mat = matrix(NA, n, n)
+  diag(p.mat) = 0
+  for(i in 1:(n-1)){
+    for(j in (i+1):n){
+      tmp = cor.test(mat[,i], mat[,j], ...)
+      p.mat[i,j] <- p.mat[j, i] <- tmp$p.value
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+p.mat = cor.mtest(Xs)
+corrplot::corrplot(Xs_corr, method="number", type="upper", order="hclust", 
+                   number.cex = 0.7, tl.cex=0.8, tl.col="black", tl.srt = 45,
+                   p.mat = p.mat, sig.level=0.05, insig="blank", diag=F)
+```
+```{r}
+corr_flat = function(Xs_corr) {
+  data.frame(row = rownames(Xs_corr)[row(Xs_corr)[upper.tri(Xs_corr)]],
+             col = rownames(Xs_corr)[col(Xs_corr)[upper.tri(Xs_corr)]],
+             cor = Xs_corr[upper.tri(Xs_corr)])
+}
+corr_flat(Xs_corr) %>% arrange(desc(abs(cor)))
+```
+
+PCA나 factor analysis하면 안 되나요? 되긴 되는데... 그러면 일반 대중에게 이 모델을 설명하기가 어렵습니다. 생각해보세요 이 PC가 되게 중요하가 나왔습니다 이러면 그게 뭔대요? 할거 아니에요. 팩터 분석도 아무리 내가 "인구에 관련된 팩터입니다"라고 해도 "그게 뭔데요" 한다고. 특히 우리 데이터는 p가 무지막지하게 큰 것도 아니라서 그런 차원축소법을 안 하면 안 될 정도도 아님. 때문에 설명의 편의를 위해 그냥 변수를 그대로 살리는 방향을 선택함..
+
+그리고 중요한 것은 변수에 대한 어떤 도메인 놀리지가 있다는 것임. 이게 뭐냐면, 예컨대 age1929와 mem1이 상관관계가 높으면 우린 그걸 상식적으로 설명할 수 있음 아래 설명처럼. 아 이래서 코릴레이션이 높구나, 그냥 하나 버려도 되겠다 하고. 그러나 만일 변수가 뭔지 진짜 아예 모르면, 이게 왜 코릴레이션이 높은지 모르니까, 함부로 버릴 수가 없음. 그러면 어어어시발시발 하면서 어쩔수없이 차원축소로 뭉개버려야하는것.
+
+
+```{r}
+DF_ppd %>% ggplot(aes(x=mem1, y=AvgMem, color=gu)) + geom_point()  +theme_bw()
+DF_ppd %>% ggplot(aes(x=month_int, y=search, color=gu)) + geom_point()  +theme_bw()
+DF_ppd %>% ggplot(aes(x=age1929, y=mem1, color=gu)) + geom_point()  +theme_bw()
+DF_ppd %>% ggplot(aes(x=pm10, y=avg_temp, color=gu)) + geom_point()  +theme_bw()
+DF_ppd %>% ggplot(aes(x=IncLv, y=nBusiness, color=gu)) + geom_point()  +theme_bw()
+DF_ppd %>% ggplot(aes(x=age65_, y=age_05, color=gu)) + geom_point()  +theme_bw()
+DF_ppd %>% ggplot(aes(x=age65_, y=TotalHouses, color=gu)) + geom_point()  +theme_bw()
+DF_ppd %>% ggplot(aes(x=age65_, y=IncLv, color=gu)) + geom_point()  +theme_bw()
+```
+
+
+
+일단 AvgMem, age1929, search, pm10, IncLv, age65_ 빼자.
+
+Avgmem, age1929: 퍙균 가구원수인데, 1인가구가 높아지면 당연히 낮아지니... 데이터분석의 관심이 음쓰에 대한 1인가구 영향이므로 해석의 편의를 위해 1인 가구 비율을 넣자. age1929도 마찬가지.
+
+search: 이게 참... 거시기한게, 시간이 지날수록 배달음식 타입하는 트렌드가 늘어나. 그래서 상관관계가 0.88이 나옴ㅋㅋㅋ 생각해보면 시간에 따른 음쓰 배출량의 추세를 설명하는 여러가지 요인 중 하나가 바로 search이고, month_int은 그 모든 요인들을 포함한 시간에 따른 증가 트렌드 자체로 볼 수 있음. 때문에 month_int가 좀 더 포괄적이지 않을까 생각.. 그리고 나중에 모델 예측값 제시할떄도 month_int가 있는게 더 편함
+
+pm10: 기온이랑 너무 비슷하게 (정반대로) 감.. 환경변수특) 자치구별로 걍 다 똑같음. EDA만 보면 기온이 높으면 음쓰 많이 내는데, 미세먼지 수치가 높으면 음쓰 많이 냄. 상식적으로 미세먼지 높으면 밖에 안 나가고 집에서 처묵처묵할텐데 이게 말이됨? 결국 기온에 따른 영향이 미세먼지와 음쓰 간의 관게에 착시를 일으킨다고 봐야함. 때문에 pm10 제외. (환경변수가 음쓰와 관련이 없다고 모델 돌리기도 전에 결론을 내리는 건 아님. 다만 우리가 수집한 데이터로는 기온에 선형독립이면서 음쓰에 영향을 주는 환경 관련 변수가 없다는 것. 이 데이터로는 기온과 미세먼지의 영향을 독립적으로 파악할 수 없음)
+
+IncLv: 소득수준이 높으면 사람들이 외식에 돈을 마니 써서 식당 수도 많은거같음. 근데 소득수준은 자치구별로 변동이 거의 없으니까 점포수로 대체하자.
+
+age65_: 65세 이상 인구 비율이 많은 동네에 사람들도 별로 안 살고 (세대수 마이너스) 애기들도 별로 없는 거 같음. 그리고 소득수준도 낮음. 암울하네 ㄹㅇ.. 
+
+```{r}
+col_del = c("AvgMem", "age1929", "search", "pm10", "IncLv", "age65_")
+DF_ppd2 = DF_ppd %>% select(-all_of(col_del))
+DF_ppd2
+```
+
+```{r}
+Xs = DF_ppd2[,4:ncol(DF_ppd2)]
+Xs_corr = cor(Xs)
+
+p.mat = cor.mtest(Xs)
+corrplot::corrplot(Xs_corr, method="number", type="upper", order="hclust", 
+                   number.cex = 1.2, tl.cex=0.9, tl.col="black", tl.srt = 45,
+                   p.mat = p.mat, sig.level=0.05, insig="blank", diag=F)
+
+```
+
+됐다 이정도는 넘어가자 그냥 ㅋㅋ
+```{r}
+DF_fit = DF_ppd2
+```
+
+```{r}
+# write.table(DF_fit, "data/FW_M_fit.csv", sep=",", row.names = F, fileEncoding = "UTF-8")
+DF_fit = fread("data/FW_M_fit.csv", encoding = "UTF-8")
+DF_fit
+```
+
+
+## Model fitting
+
+전처리 모두 끝났으니 학습 ㄱㄱ
+
+일단 모두 다 때려박은 풀 모델 ㄱㄱ
+
+```{r}
+model_full = lmer(FW_t ~ 1 + month_int + TotalHouses+ age_05 + mem1 + nBusiness + Suv1yr + NO2 + avg_temp + Holidays +
+              (1 + month_int + TotalHouses+ age_05 + mem1 + nBusiness + Suv1yr + NO2 + avg_temp + Holidays|gu), 
+            data= DF_fit)
+```
+
+```{r}
+faraway::sumary(model_full, digits=3)
+```
+
+Fixed effect t-stat으로 몇 개 쳐내고 (mem1, Suv1yr, NO2, Holidays), 랜덤 이펙트 std.dev 너무 작은 애들(NO2, Holidays) 좀 쳐내면...
+```{r}
+model1 = lmer(FW_t ~ 1 + month_int + TotalHouses+ age_05 +  nBusiness + avg_temp + 
+              (1 + month_int + TotalHouses+ age_05 + mem1 + nBusiness + Suv1yr +  avg_temp|gu),
+            data= DF_fit)
+sumary(model1, digits=3)
+```
+
+age_05도 애매하니까 쳐내./..
+```{r}
+model2 = lmer(FW_t ~ 1 + month_int + TotalHouses+   nBusiness + avg_temp + 
+              (1 + month_int + TotalHouses+ age_05 + mem1 + nBusiness + Suv1yr +  avg_temp|gu),
+            data= DF_fit)
+sumary(model2, digits=3)
+```
+
+confidence interval for random effects
+
+못구함 시발... 붓스트랩 해야하는데 니미 시발 존나 오래걸림
+
+걍 겐또로 몇 개 빼보고 AIC 보는 수 밖에 없음
+
+```{r}
+model3 = lmer(FW_t ~ 1 + month_int + TotalHouses+   nBusiness + avg_temp + 
+              (1 + month_int + TotalHouses+ age_05 + mem1 + nBusiness|gu),
+            data= DF_fit)
+sumary(model3, digits=3)
+```
+
+```{r}
+model4 = lmer(FW_t ~ 1 + month_int + TotalHouses+   nBusiness + avg_temp + 
+              (1 + month_int + age_05 + mem1 + nBusiness|gu),
+            data= DF_fit)
+sumary(model4, digits=3)
+```
+
+$$
+\begin{align}
+y_{ij} &= \beta_0 + \gamma_{0i}\\
+&+ (\beta_1 +\gamma_{1i}) Mon_{ij}\\
+&+ \beta_2 TH_{ij}+\beta_3 Temp_{ij}\\
+&+ \gamma_{2i} Age5_{ij} + \gamma_{3i} mem1_{ij} + \gamma_{4i}nBus_{ij}\\
+&+ \sigma^2
+\end{align}
+$$
+
+
+$$
+\begin{align}
+y_{ij} &= \beta_0 + \beta_1 Mon_{ij} + \beta_2 TH_{ij}+\beta_3 Temp_{ij}\\
+&+ \gamma_{0i} +\gamma_{1i} Mon_{ij} + \gamma_{2i} Age5_{ij} + \gamma_{3i} mem1_{ij} + \gamma_{4i}nBus_{ij}\\
+&+ \sigma^2
+\end{align}
+$$
+
+
+```{r}
+DF_fit_model5 = DF_fit %>% select(gu, FW_t, month_int, TotalHouses, avg_temp, age_05, mem1, nBusiness)
+
+
+model5 = lmer(FW_t ~ 1 + month_int + TotalHouses+ avg_temp + 
+                (1 + month_int + age_05 + mem1 + nBusiness|gu), 
+              data= DF_fit_model5)
+faraway::sumary(model5, digits=3)
+
+
+```
+
+```{r}
+summary(model5)
+```
+
+
+```{r}
+#model5_CI = confint(model5, method="boot")
+model5_CI
+```
+```{r}
+write.table(model5_CI, "data/model5_CI.csv", row.names = T, sep=",")
+```
+
+```{r}
+model5_CI = fread("data/model5_CI.csv")
+model5_CI_sub = model5_CI[c(1,6,10,13,15,16),2:3]
+model5_CI_sub %>% round(3)
+```
+
+
+```{r}
+lattice::dotplot(ranef(model5, condVar=T))
+```
+
+
+check residuals
+
+```{r}
+gg_qq(residuals(model5))
+```
+
+
+
+```{r}
+layout(matrix(c(1,2), nrow=1))
+qqnorm(residuals(model5), main="")
+plot(fitted(model5), residuals(model5), xlab="Fitted", ylab="Residuals")
+abline(h=0)
+```
+actual data vs fitted
+
+```{r}
+DF_res = DF_fit
+DF_res$pred = fitted(model5)
+
+DF_comp = DF_res %>% select(Month, gu, FW_t, pred) %>% pivot_longer(names_to = "type", values_to = "FW", -c(Month, gu))
+
+filter(DF_comp, gu %in% unique(DF_comp$gu)[1:6]) %>% ggplot(aes(x=ymd(Month), y=FW, color=type))+geom_line() +
+  scale_color_manual(values=c("grey", "navy")) + facet_wrap(~gu, scales="free")+theme_bw()
+
+filter(DF_comp, gu %in% unique(DF_comp$gu)[1:6 + 6]) %>% ggplot(aes(x=ymd(Month), y=FW, color=type))+geom_line() +
+  scale_color_manual(values=c("grey", "navy")) + facet_wrap(~gu, scales="free")+theme_bw()
+
+filter(DF_comp, gu %in% unique(DF_comp$gu)[1:6 + 12]) %>% ggplot(aes(x=ymd(Month), y=FW, color=type))+geom_line() +
+  scale_color_manual(values=c("grey", "navy")) + facet_wrap(~gu, scales="free")+theme_bw()
+
+filter(DF_comp, gu %in% unique(DF_comp$gu)[1:4 + 18]) %>% ggplot(aes(x=ymd(Month), y=FW, color=type))+geom_line() +
+  scale_color_manual(values=c("grey", "navy")) + facet_wrap(~gu,ncol=3, scales="free")+theme_bw()
+
+```
+
+
+
+check assumption of random effect dist
+```{r}
+layout(matrix(c(1:6), nrow=2, byrow = T))
+qqnorm(ranef(model5)$gu[[1]], main="intercept")
+qqnorm(ranef(model5)$gu[[2]], main="month_int")
+qqnorm(ranef(model5)$gu[[3]], main="age_05")
+qqnorm(ranef(model5)$gu[[4]], main="mem1")
+qqnorm(ranef(model5)$gu[[5]], main="nBusiness")
+```
+
+
+파라미터 저장 (나중에 지도로 시각화)
+
+```{r}
+model5_fx = lme4::fixef(model5)
+model5_rx = lme4::ranef(model5)$gu
+model5_rx_fx = model5_fx+model5_rx
+write.table(model5_fx, "data/model5_fx.csv", row.names = T, sep=",")
+write.table(model5_rx, "data/model5_rx.csv", row.names = T, sep=",")
+write.table(model5_rx_fx, "data/model5_rx_fx.csv", row.names = T, sep=",")
+```
+
+
+
+## Prediction
+
+```{r}
+DFpred = fread("data/FW_pred.csv", encoding = "UTF-8") %>% arrange(gu, Month) %>% filter(gu != "용산구")
+DFpred$month_int =rep(0:41, length(unique(DFpred$gu)))
+DFpred = DFpred %>% filter(month_int > 29)
+DFpred
+```
+
+위에서 해준대로 똑같이 전처리하기
+```{r}
+MEANs = col_scale_mean[names(col_scale_mean) %in% colnames(DFpred)]
+SDs = col_scale_sd[names(col_scale_sd) %in% colnames(DFpred)]
+
+DFpred$TotalHouses = (DFpred$TotalHouses - MEANs[names(MEANs) == "TotalHouses"])/SDs[names(SDs) == "TotalHouses"]
+DFpred$age_05 = (DFpred$age_05 - MEANs[names(MEANs) == "age_05"])/SDs[names(SDs) == "age_05"]
+DFpred$mem1 = (DFpred$mem1 - MEANs[names(MEANs) == "mem1"])/SDs[names(SDs) == "mem1"]
+DFpred$nBusiness = (DFpred$nBusiness - MEANs[names(MEANs) == "nBusiness"])/SDs[names(SDs) == "nBusiness"]
+DFpred$avg_temp = (DFpred$avg_temp - MEANs[names(MEANs) == "avg_temp"])/SDs[names(SDs) == "avg_temp"]
+DFpred$month_int = (DFpred$month_int - MEANs[names(MEANs) == "month_int"])/SDs[names(SDs) == "month_int"]
+
+DFpred
+```
+
+원래 데이터의 prediction
+
+```{r}
+DFpred_res = DFpred
+DFpred_res$pred = predict(model5, newdata= DFpred)
+DFpred_res
+```
+
+예측값의 신뢰구간을 위한 부트스트랩
+
+
+```{r}
+B = 1000
+pred_df2 = matrix(NA, nrow=264, ncol=B)
+for(i in 1:B){
+  if(i %% 10 ==0) cat(i, "\t")
+  y = unlist(simulate(model5, use.u=T))
+  bmod = suppressMessages(suppressWarnings(lme4::refit(model5, y)))
+  pred_df2[,i] = predict(bmod, newdata=DFpred)
+}
+```
+
+```{r}
+DF_pred_sd = apply(pred_df2, 1, sd)
+DF_pred_CI = apply(pred_df2, 1, function(x) quantile(x, c(0.025, 0.975))) %>% t() %>% data.frame()
+colnames(DF_pred_CI) = c("ub","lb")
+```
+
+
+```{r}
+write.table(pred_df2, "data/FW_pred_bootstrap.csv", sep=",", row.names=F)
+```
+
+```{r}
+pred_df2 = fread("data/FW_pred_bootstrap.csv", encoding = "UTF-8")
+DF_pred_sd = apply(pred_df2, 1, sd)
+DF_pred_CI = apply(pred_df2, 1, function(x) quantile(x, c(0.025, 0.975))) %>% t() %>% data.frame()
+colnames(DF_pred_CI) = c("ub","lb")
+head(DF_pred_CI)
+```
+
+
+
+```{r}
+DF_res = DF_fit
+DF_res$pred = fitted(model5)
+DF_comp = DF_res %>% select(Month, gu, FW_t, pred) %>% pivot_longer(names_to = "type", values_to = "FW", -c(Month, gu))
+
+DFpred_res$lb = DF_pred_CI$lb
+DFpred_res$ub = DF_pred_CI$ub
+FWpred = DFpred_res %>% select(Month, gu, pred, lb, ub) %>% pivot_longer(names_to = "type", values_to = "FW", -c(Month, gu))
+
+DF_comp = rbind(DF_comp, FWpred)
+
+filter(DF_comp, gu %in% unique(DF_comp$gu)[1:6]) %>% ggplot(aes(x=ymd(Month), y=exp(FW), color=type))+geom_line() +
+  scale_color_manual(values=c("grey", "cornflowerblue", "navy", "cornflowerblue")) + facet_wrap(~gu, scales="free")+theme_bw()+
+  geom_vline(xintercept = ymd("2020-07-01"), linetype="dashed", col="grey")+
+  theme(legend.position = "none")+labs(x="", y="")
+ggsave("figures/pred01.png", width=8, height=4)
+
+filter(DF_comp, gu %in% unique(DF_comp$gu)[1:6 + 6]) %>% ggplot(aes(x=ymd(Month), y=exp(FW), color=type))+geom_line() +
+  scale_color_manual(values=c("grey", "cornflowerblue", "navy", "cornflowerblue")) + facet_wrap(~gu, scales="free")+theme_bw()+
+  geom_vline(xintercept = ymd("2020-07-01"), linetype="dashed", col="grey")+
+  theme(legend.position = "none")+labs(x="", y="")
+ggsave("figures/pred02.png", width=8, height=4)
+
+filter(DF_comp, gu %in% unique(DF_comp$gu)[1:6 + 12]) %>% ggplot(aes(x=ymd(Month), y=exp(FW), color=type))+geom_line() +
+  scale_color_manual(values=c("grey", "cornflowerblue", "navy", "cornflowerblue")) + facet_wrap(~gu, scales="free")+theme_bw()+ 
+  geom_vline(xintercept = ymd("2020-07-01"), linetype="dashed", col="grey")+
+  theme(legend.position = "none")+labs(x="", y="")
+ggsave("figures/pred03.png", width=8, height=4)
+
+filter(DF_comp, gu %in% unique(DF_comp$gu)[1:4 + 18]) %>% ggplot(aes(x=ymd(Month), y=exp(FW), color=type))+geom_line() +
+  scale_color_manual(values=c("grey", "cornflowerblue", "navy", "cornflowerblue")) + facet_wrap(~gu,ncol=3, scales="free")+theme_bw()+
+  geom_vline(xintercept = ymd("2020-07-01"), linetype="dashed", col="grey")+
+  theme(legend.position = "none")+labs(x="", y="")
+ggsave("figures/pred04.png", width=8, height=4)
+```
+
+
+```{r}
+write.table(DF_comp, "data/FW_pastpred.csv", row.names=F, sep=",", fileEncoding = "UTF-8")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

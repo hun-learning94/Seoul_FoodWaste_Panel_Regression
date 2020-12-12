@@ -1,0 +1,427 @@
+---
+title: "DATA INTEG MONTHLY"
+author: "Kang Gyeonghun"
+date: "11/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+dirname(rstudioapi::getActiveDocumentContext()$path)
+oldloc = Sys.getlocale("LC_ALL")
+Sys.setlocale("LC_ALL", "korean")
+```
+
+<br>
+
+**필요한 패키지들 불러오기**
+```{r, results='hide', warning=FALSE, message=FALSE}
+pkgs = c('tidyverse','ggplot2',"lubridate", "readxl", "data.table")
+pkg_ins = rownames(installed.packages())
+for(pkg in pkgs){  if(!(pkg %in% pkg_ins)) install.packages(pkg, character.only=T) }
+sapply(pkgs, require, character.only=T)
+```
+
+서울코드 불러오기
+```{r}
+citycodes = fread("data/citycode.csv", encoding = "UTF-8")
+seoulCode = rbind(citycodes[1:24,], tail(citycodes,1))
+```
+
+# Monthly analysis
+
+## Target: FW18~20 Monthly
+
+```{r}
+DF = fread("data/fw1720_gu_imputed_weekly.csv", encoding = "UTF-8")
+Month = as.Date(cut(DF$Week, "month"))
+DF = aggregate(.~Month, DF[,-1], sum, na.action = NULL)
+DF = DF %>% gather("gu", "FW_t", -Month) %>% filter(Month >= "2018-01-01" & Month < "2020-07-01") %>% arrange(gu, Month)
+FW1820_mly = DF
+FW1820_mly
+```
+
+시각화
+
+```{r}
+FW1820_mly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[2:7]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Month), y=FW_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")+theme_bw()
+ggsave("panel1.jpg")
+
+FW1820_mly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[8:13]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Month), y=FW_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")+theme_bw()
+ggsave("panel2.jpg")
+
+FW1820_mly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[14:19]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Month), y=FW_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")+theme_bw()
+ggsave("panel3.jpg")
+
+FW1820_mly %>% 
+  filter(gu %in% sort(seoulCode$citySggName)[20:25]) %>% 
+  ggplot()+
+  geom_line(aes(x=ymd(Month), y=FW_t, color=gu))+
+  facet_wrap(~ gu, scales="free")+
+  theme(legend.position="right")+theme_bw()
+ggsave("panel4.jpg")
+```
+
+
+
+
+
+
+## Predictor 1: Populations
+
+### Total Households
+
+```{r}
+DF = fread("data/nHouses1820_gu_qtrly.csv", encoding="UTF-8")
+colnames(DF)[1] = "Month"
+pop_TotalHouses1820_mly = DF %>% filter(Month >= "2018-01-01" & Month < "2020-07-01") %>% gather("gu", "TotalHouses", -Month) %>% arrange(gu, Month)
+pop_TotalHouses1820_mly
+```
+
+Visualize
+```{r}
+pop_TotalHouses1820_mly %>% ggplot(aes(x=ymd(Month), y=log(TotalHouses), color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+
+
+
+### Age ratio
+
+```{r}
+DF = fread("data/pop_age_long_qtrly.csv", encoding="UTF-8")
+colnames(DF)[1] = "Month"
+DF
+```
+
+
+
+```{r}
+cor(DF[,3:ncol(DF)])
+```
+
+
+
+```{r}
+pop_Age1820_mly = DF %>% select(Month, gu, age_05, age1929, age65_) %>% arrange(gu, Month)
+pop_Age1820_mly
+```
+
+```{r}
+pop_Age1820_mly %>% ggplot(aes(x=ymd(Month), y=log(age_05), color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+
+
+### Household members ratio
+
+```{r}
+DF = fread("data/pop_housemember_mly.csv", encoding="UTF-8")
+colnames(DF)[1] = "Month"
+pop_Mem1820_mly = DF %>% select(Month, gu, mem1) %>% arrange(gu, Month)
+pop_Mem1820_mly
+```
+
+```{r}
+pop_Mem1820_mly %>% ggplot(aes(x=ymd(Month), y=mem1, color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+
+
+
+### Average members
+
+```{r}
+DF = fread("data/PopPerHouse1820_gu_qtrly.csv", encoding = "UTF-8")
+colnames(DF)[1] = "Month"
+pop_AvgMem1820_mly = DF %>% filter(Month >= "2018-01-01" & Month < "2020-07-01") %>% gather("gu", "AvgMem", -Month) %>% arrange(gu, Month)
+pop_AvgMem1820_mly
+```
+
+### Household income level
+
+```{r}
+pop_IncLv1820_mly = fread("data/incomelvl1820_gu_qtrly.csv", encoding = "UTF-8") %>% rename(Month = Qtr) %>% 
+  filter(Month >= "2018-01-01" & Month < "2020-07-01") %>% gather("gu", "IncLv", -Month) %>% arrange(gu, Month)
+pop_IncLv1820_mly$IncLv = pop_IncLv1820_mly$IncLv - 7 # seoul inc lvl 7
+pop_IncLv1820_mly
+```
+
+
+## Predictor 2: Business
+
+### Total restaurants
+ 
+```{r}
+buss_TotalBuss1820_mly = fread("data/nBuss1820_gu_qtrly.csv", encoding = "UTF-8") %>% rename(Month = Qtr) %>% 
+  filter(Month >= "2018-01-01" & Month < "2020-07-01") %>% gather("gu", "nBusiness", -Month) %>% arrange(gu, Month)
+buss_TotalBuss1820_mly
+```
+
+```{r}
+buss_TotalBuss1820_mly %>% ggplot(aes(x=ymd(Month), y=log(nBusiness), color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+
+
+### Business survival rate
+
+```{r}
+buss_Suv1yr1820_mly = fread("data/rSuv1yr1820_gu_qtrly.csv", encoding = "UTF-8") %>% rename(Month = Qtr) %>% 
+  filter(Month >= "2018-01-01" & Month < "2020-07-01") %>% gather("gu", "Suv1yr", -Month) %>% arrange(gu, Month)
+buss_Suv1yr1820_mly
+```
+
+
+## Predictor 3: Climate
+
+### NO2
+```{r}
+cli_NO2_1820_mly = fread("data/pollutant_NO21820_monthly.csv", encoding = "UTF-8") %>% filter(Month <= "2020-06-01")
+colnames(cli_NO2_1820_mly)[3] = "NO2"
+cli_NO2_1820_mly
+```
+
+
+### pm10
+```{r}
+cli_pm10_1820_mly = fread("data/pollutant_pm101820_monthly.csv", encoding = "UTF-8") %>% filter(Month <= "2020-06-01")
+colnames(cli_pm10_1820_mly)[3] = "pm10"
+cli_pm10_1820_mly
+```
+
+### temperature
+
+```{r}
+cli_temp1820_mly = fread("data/avgtemp1820_mly.csv", encoding="UTF-8") %>% arrange(gu, Month)
+cli_temp1820_mly
+```
+
+
+## Predictor 4: search trend
+
+```{r}
+search1820_mly = fread("data/search1820_mly.csv", encoding="UTF-8") %>% filter(Month <= "2020-06-01") %>% arrange(gu, Month)
+search1820_mly
+```
+
+# All Combinded:
+
+```{r}
+DF = cbind(
+  FW1820_mly,
+  pop_TotalHouses1820_mly,
+  pop_Age1820_mly,
+  pop_Mem1820_mly,
+  pop_AvgMem1820_mly,
+  pop_IncLv1820_mly,
+  buss_TotalBuss1820_mly,
+  buss_Suv1yr1820_mly,
+  cli_NO2_1820_mly,
+  cli_pm10_1820_mly,
+  cli_temp1820_mly,
+  search1820_mly
+)
+
+DF = DF[,!duplicated(colnames(DF))] %>% filter(!(gu %in% c("강남구", "강북구")))
+dim(DF)
+DF
+```
+
+명절 넣기
+
+```{r}
+Holiday_dates = ymd(c("2018-02-01", "2019-02-01", "2020-01-01", "2018-09-01", "2019-09-01"))
+Holidays = rep(0, nrow(DF))
+for(i in 1:length(Holidays)){
+  if(DF$Month[i] %in% Holiday_dates) Holidays[i] = 1
+}
+DF$Holidays = Holidays
+DF
+```
+
+
+```{r}
+write.table(DF, "data/FW1820_GU_MONTHLY.csv", sep=",", fileEncoding = "UTF-8", row.names = F)
+fread("data/FW1820_GU_MONTHLY.csv", encoding = "UTF-8")
+```
+
+
+
+## Prediction
+
+설명변수 TotalHouses, avg_temp, age_05, mem1, nBusiness 예측하기
+
+0. TotalHouses
+
+```{r}
+pop_TotalHouses1820_mly %>% ggplot(aes(x=ymd(Month), y=log(TotalHouses), color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+18년부터 20년까지의 추세가 지속될 것으로 가정.
+```{r}
+pop_TotalHouses1820_mly$month_int = rep(0:29, length(unique(pop_TotalHouses1820_mly$gu)))
+ml = lmList(TotalHouses ~ I(month_int) | gu, pop_TotalHouses1820_mly)
+intercepts = sapply(ml, coef)[1,]
+slopes = sapply(ml, coef)[2,]
+```
+
+```{r}
+DF_pred = as.data.frame(mapply(function(beta0, beta1, x) beta0+beta1*x, intercepts, slopes, MoreArgs = list(x=30:41)))
+DF_pred$month_int = 30:41
+DF_pred$Month = seq.Date(from=ymd("2020-07-01"), to=ymd("2021-06-01"), by="month")
+DF_pred = DF_pred %>% gather("gu", "TotalHouses", -c(Month,month_int)) %>% select(Month, gu, TotalHouses)
+```
+
+```{r}
+DF_real = pop_TotalHouses1820_mly %>% select(Month, gu, TotalHouses)
+TTHpred = rbind(DF_real, DF_pred) %>% arrange(gu, Month)
+TTHpred %>% ggplot(aes(x=ymd(Month), y=log(TotalHouses), color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+
+
+1. age05
+
+```{r}
+pop_Age1820_mly %>% ggplot(aes(x=ymd(Month), y=log(age_05), color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+18년부터 20년까지의 추세가 지속될 것으로 가정.
+```{r}
+pop_Age1820_mly$month_int = rep(0:29, length(unique(pop_Age1820_mly$gu)))
+ml = lmList(age_05 ~ I(month_int) | gu, pop_Age1820_mly)
+intercepts = sapply(ml, coef)[1,]
+slopes = sapply(ml, coef)[2,]
+```
+
+```{r}
+DF_pred = as.data.frame(mapply(function(beta0, beta1, x) beta0+beta1*x, intercepts, slopes, MoreArgs = list(x=30:41)))
+DF_pred$month_int = 30:41
+DF_pred$Month = seq.Date(from=ymd("2020-07-01"), to=ymd("2021-06-01"), by="month")
+DF_pred = DF_pred %>% gather("gu", "age_05", -c(Month,month_int)) %>% select(Month, gu, age_05)
+```
+
+```{r}
+DF_real = pop_Age1820_mly %>% select(Month, gu, age_05)
+DF_real$Month = ymd(DF_real$Month)
+AGE5pred = rbind(DF_real, DF_pred)
+AGE5pred %>% ggplot(aes(x=ymd(Month), y=log(age_05), color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+
+3. mem1
+
+```{r}
+pop_Mem1820_mly %>% ggplot(aes(x=ymd(Month), y=mem1, color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+```{r}
+pop_Mem1820_mly$month_int = rep(0:29, length(unique(pop_Mem1820_mly$gu)))
+ml = lmList(mem1 ~ I(month_int) | gu, pop_Mem1820_mly)
+intercepts = sapply(ml, coef)[1,]
+slopes = sapply(ml, coef)[2,]
+```
+
+```{r}
+DF_pred = as.data.frame(mapply(function(beta0, beta1, x) beta0+beta1*x, intercepts, slopes, MoreArgs = list(x=30:41)))
+DF_pred$month_int = 30:41
+DF_pred$Month = seq.Date(from=ymd("2020-07-01"), to=ymd("2021-06-01"), by="month")
+DF_pred = DF_pred %>% gather("gu", "mem1", -c(Month,month_int)) %>% select(Month, gu, mem1)
+```
+
+```{r}
+DF_real = pop_Mem1820_mly %>% select(Month, gu, mem1)
+DF_real$Month = ymd(DF_real$Month)
+MEM1pred = rbind(DF_real, DF_pred)
+MEM1pred %>% ggplot(aes(x=ymd(Month), y=mem1, color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+
+4. nBusiness
+
+```{r}
+buss_TotalBuss1820_mly %>% ggplot(aes(x=ymd(Month), y=nBusiness, color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+```{r}
+buss_TotalBuss1820_mly$month_int = rep(0:29, length(unique(buss_TotalBuss1820_mly$gu)))
+ml = lmList(nBusiness ~ I(month_int) | gu, buss_TotalBuss1820_mly)
+intercepts = sapply(ml, coef)[1,]
+slopes = sapply(ml, coef)[2,]
+```
+
+```{r}
+DF_pred = as.data.frame(mapply(function(beta0, beta1, x) beta0+beta1*x, intercepts, slopes, MoreArgs = list(x=30:41)))
+DF_pred$month_int = 30:41
+DF_pred$Month = seq.Date(from=ymd("2020-07-01"), to=ymd("2021-06-01"), by="month")
+DF_pred = DF_pred %>% gather("gu", "nBusiness", -c(Month,month_int)) %>% select(Month, gu, nBusiness)
+```
+
+```{r}
+DF_real = buss_TotalBuss1820_mly %>% select(Month, gu, nBusiness)
+DF_real$Month = ymd(DF_real$Month)
+NBSpred = rbind(DF_real, DF_pred)
+NBSpred %>% ggplot(aes(x=ymd(Month), y=nBusiness, color=gu))+geom_line()+facet_wrap(~gu, scales = "free")
+```
+
+
+5. avg temp
+
+```{r}
+DF = cli_temp1820_mly %>% spread(gu, avg_temp)
+DF
+```
+
+```{r}
+avgtemp_mon = DF %>% select(Month, 강남구) %>% group_by(month(Month)) %>% summarize(mean=mean(강남구))
+avgtemp_mon
+```
+```{r}
+DFpred = data.frame(
+  Month = seq.Date(from=ymd("2020-07-01"), to=ymd("2021-06-01"), by="month"),
+  avg_temp = avgtemp_mon$mean[c(7:12, 1:6)]
+)
+DFpred
+```
+
+```{r}
+n_gu = length(unique(cli_temp1820_mly$gu))
+DFpred_long = DFpred %>% slice(rep(1:n(), each=n_gu))
+DFpred_long$gu = rep(unique(cli_temp1820_mly$gu), nrow(DFpred))
+DFpred_long = DFpred_long[,c(1,3,2)] %>% arrange(gu)
+DFpred_long
+```
+```{r}
+cli_temp1820_mly$Month = ymd(cli_temp1820_mly$Month)
+TEMPpred = rbind(cli_temp1820_mly, DFpred_long)
+TEMPpred %>% filter(gu == "강남구") %>% ggplot(aes(x=ymd(Month), y=avg_temp))+geom_line()
+```
+
+```{r}
+DF = cbind(
+  TTHpred,
+  AGE5pred,
+  MEM1pred,
+  NBSpred,
+  TEMPpred)
+
+DF = DF[,!duplicated(colnames(DF))] %>% filter(!(gu %in% c("강남구", "강북구")))
+dim(DF)
+DF
+```
+```{r}
+write.table(DF, "data/FW_pred.csv", sep=",", row.names=F, fileEncoding = "UTF-8")
+```
+
+```{r}
+TTHpred
+```
+
+
+
